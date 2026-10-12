@@ -388,8 +388,8 @@ async function pollGpu(){
       document.getElementById('utilTxt').textContent=(j.util_pct||0)+'%';
       document.getElementById('pwrTxt').textContent=(j.power_w!=null)?(Math.round(j.power_w)+' W'):'\u2014';
       document.getElementById('tempTxt').textContent=(j.temp_c!=null)?(Math.round(j.temp_c)+' \u00b0C'):'\u2014';
-      b.className='badge live dot';b.textContent='LIVE \u00b7 rocm-smi';
-    }else{b.className='badge sim dot';b.textContent='rocm-smi n/a';}
+      b.className='badge live dot';b.textContent='LIVE \u00b7 amdgpu';
+    }else{b.className='badge sim dot';b.textContent='gpu n/a';}
   }catch(e){}
 }
 pollGpu();setInterval(pollGpu,2500);

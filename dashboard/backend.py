@@ -66,36 +66,97 @@ def models():
                         "error": f"vLLM not reachable: {e.__class__.__name__}"}), 200
 
 
-def _rocm_smi():
-    """Return real VRAM + util + power + temp from rocm-smi. Honest fallback."""
+def _amdgpu_card_path():
+    """Find the amdgpu card sysfs dir (the one with gpu_busy_percent). Cached."""
+    import glob
+    for dev in sorted(glob.glob("/sys/class/drm/card*/device")):
+        if os.path.exists(os.path.join(dev, "gpu_busy_percent")):
+            return dev
+    return None
+
+
+def _read_int(path):
     try:
-        out = subprocess.check_output(
-            ["rocm-smi", "--showmeminfo", "vram", "--showuse",
-             "--showpower", "--showtemp", "--json"],
-            stderr=subprocess.DEVNULL, timeout=6).decode()
-        j = json.loads(out)
-        card = next(iter(j.values())) if j else {}
-        used = int(card.get("VRAM Total Used Memory (B)", 0))
-        total = int(card.get("VRAM Total Memory (B)", 0))
-        util = card.get("GPU use (%)", card.get("GPU Use (%)", "0"))
+        with open(path) as f:
+            return int(f.read().strip())
+    except Exception:
+        return None
 
-        def _num(*keys):
-            for k in card:
-                for key in keys:
-                    if key.lower() in k.lower():
-                        try:
-                            return round(float(str(card[k]).strip()), 1)
-                        except Exception:
-                            pass
-            return None
 
-        return {"ok": True, "vram_used_gb": round(used / 1e9, 1),
-                "vram_total_gb": round(total / 1e9, 1),
-                "util_pct": int(str(util).strip() or 0),
-                "power_w": _num("Socket Graphics Package Power", "Average Graphics Package Power"),
-                "temp_c": _num("Temperature (Sensor junction)", "Temperature (Sensor edge)")}
-    except Exception as e:
-        return {"ok": False, "error": f"rocm-smi: {e.__class__.__name__}"}
+def _rocm_smi():
+    """Return real HBM + compute util + power + temp for the MI300X.
+
+    Primary source is amdgpu SYSFS, not `rocm-smi`: on this host's ROCm build
+    `rocm-smi --showuse`/`--showtemp` crash with an assertion (exit 134, core
+    dump) in GetGPUMetricsFormat1, and because the old code bundled every flag
+    into ONE call, that crash took HBM and compute down with it. Sysfs nodes
+    (gpu_busy_percent, mem_info_vram_*, hwmon temp/power) never core-dump, so we
+    read those directly. rocm-smi is used only as a best-effort fallback for any
+    field sysfs cannot provide, each in its OWN isolated call so one failure
+    cannot poison the others.
+    """
+    dev = _amdgpu_card_path()
+    if not dev:
+        return {"ok": False, "error": "amdgpu sysfs not found"}
+
+    used = _read_int(os.path.join(dev, "mem_info_vram_used"))
+    total = _read_int(os.path.join(dev, "mem_info_vram_total"))
+    busy = _read_int(os.path.join(dev, "gpu_busy_percent"))
+
+    # temperature + power from hwmon (junction preferred), microdegree/microwatt.
+    temp_c = power_w = None
+    import glob
+    for h in glob.glob(os.path.join(dev, "hwmon", "hwmon*")):
+        # pick junction temp if labelled, else first temp sensor
+        best = None
+        for lbl in glob.glob(os.path.join(h, "temp*_label")):
+            try:
+                if open(lbl).read().strip().lower() == "junction":
+                    best = lbl.replace("_label", "_input")
+                    break
+            except Exception:
+                pass
+        if best is None:
+            inp = sorted(glob.glob(os.path.join(h, "temp*_input")))
+            best = inp[0] if inp else None
+        if best:
+            v = _read_int(best)
+            if v is not None:
+                temp_c = round(v / 1000.0, 1)
+        for pf in ("power1_average", "power1_input"):
+            v = _read_int(os.path.join(h, pf))
+            if v is not None:
+                power_w = round(v / 1e6, 1)
+                break
+        if temp_c is not None or power_w is not None:
+            break
+
+    # best-effort power fallback via an ISOLATED rocm-smi call (never bundled).
+    if power_w is None:
+        try:
+            out = subprocess.check_output(
+                ["rocm-smi", "--showpower", "--json"],
+                stderr=subprocess.DEVNULL, timeout=6).decode()
+            card = next(iter(json.loads(out).values()), {})
+            for k, val in card.items():
+                if "power" in k.lower():
+                    try:
+                        power_w = round(float(str(val).strip()), 1)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    if used is None or total is None:
+        return {"ok": False, "error": "amdgpu vram sysfs unreadable"}
+
+    return {"ok": True,
+            "vram_used_gb": round(used / 1e9, 1),
+            "vram_total_gb": round(total / 1e9, 1),
+            "util_pct": int(busy) if busy is not None else 0,
+            "power_w": power_w,
+            "temp_c": temp_c,
+            "source": "amdgpu-sysfs"}
 
 
 @app.route("/api/gpu")
