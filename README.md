@@ -131,46 +131,47 @@ Point OpenClaw's provider at the router in `~/.openclaw/openclaw.json`:
 | GPU idle, rolling pool | ~34% |
 | GPU idle, + load generator | ~0% at ~1000 tok/s, 25 concurrent, 0 errors |
 
-## Troubleshooting: dashboard shows "router down"
+## Networking: keep the firewall out of the router path (important)
 
-Two distinct causes, both addressed in this repo:
+The backends run on the **same Docker bridge** (`vllm-sr-network`) as the semantic
+router and Envoy, and the router reaches them by **container name**
+(`qwen-05b:8001`, `qwen-7b:8002`, `qwen-32b:8003`). This is deliberate and it is
+what makes the router path firewall-proof.
 
-1. **Container-to-host firewall drop (the real outage).** The semantic router and
-   Envoy run in Docker (bridge networks) and reach the vLLM backends, which run
-   with `--network host`, via `host.docker.internal`. On a host whose firewall
-   defaults `INPUT` to `DROP` (ufw does), that bridge-to-host traffic is dropped,
-   so Envoy returns `503 upstream connect error ... connection timeout` and the
-   dashboard badge flips to "router down". It can appear to work for a while
-   (conntrack keeps an established flow alive), then break the instant a backend
-   or Envoy restarts and the flow is re-established. Fix by allowing the Docker
-   bridge subnets into the host `INPUT` chain and persisting it so it survives a
-   reboot:
+Why it matters: if the backends instead ran with `--network host`, every
+router-to-backend call would be a bridge-to-**host** connection (via
+`host.docker.internal`) that traverses the host `INPUT` firewall chain. On a host
+whose firewall defaults `INPUT` to `DROP` (ufw does), that traffic is dropped, so
+Envoy returns `503 upstream connect error ... connection timeout` and the dashboard
+shows "router down". It can even appear to work for a while (conntrack keeps the
+established flow alive) and then break the instant a backend or Envoy restarts.
 
-   ```bash
-   # immediate
-   for net in 172.17.0.0/16 172.18.0.0/16 172.19.0.0/16; do
-     iptables -C INPUT -s $net -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -s $net -j ACCEPT
-   done
-   # persist (ufw): add these right after the "-i lo -j ACCEPT" line in
-   # /etc/ufw/before.rules, then `ufw reload`
-   #   -A ufw-before-input -s 172.17.0.0/16 -j ACCEPT
-   #   -A ufw-before-input -s 172.18.0.0/16 -j ACCEPT
-   #   -A ufw-before-input -s 172.19.0.0/16 -j ACCEPT
-   ```
+Putting the backends on the shared bridge makes router-to-backend pure
+**container-to-container** traffic on the Docker `FORWARD` chain (ACCEPT,
+Docker-managed), which **never touches the host `INPUT` firewall**. There is
+nothing for the firewall to interfere with.
 
-   Verify from inside a router/envoy container (must be `200`):
+Verified on this booth host: with **all** docker-bridge host-firewall ACCEPT rules
+removed and conntrack flushed, all three tiers still routed end-to-end (30/30
+requests, 0 failures) and survived a router/envoy restart. Confirm the path from
+inside the router container (must be `200`):
 
-   ```bash
-   docker exec vllm-sr-router-container \
-     curl -m6 -o /dev/null -w '%{http_code}\n' http://host.docker.internal:8001/v1/models
-   ```
+```bash
+docker exec vllm-sr-router-container \
+  curl -m6 -o /dev/null -w '%{http_code}\n' http://qwen-05b:8001/v1/models
+```
 
-2. **Over-eager badge on a single slow poll (cosmetic).** The dashboard probes the
-   router every ~3.2s with a 20s timeout. One poll losing a race under heavy load
-   does not mean the router is down. The frontend now tolerates up to 3 consecutive
-   missed probes (showing a soft "reconnecting" state) before it declares "router
-   down", and recovers on the first success. The router stays healthy with 0
-   restarts; the badge no longer flaps.
+The backends still publish their ports to host loopback (`127.0.0.1:800x`) only so
+the dashboard's Prometheus `/metrics` scraper keeps working; the routing path does
+not use them.
+
+As defense-in-depth you may still allow the Docker bridge subnets into the host
+`INPUT` chain, but the router no longer depends on it.
+
+The dashboard's router-status badge is also tolerant of a single slow probe: it
+only reports "router down" after several consecutive missed polls (soft
+"reconnecting" state in between) and recovers on the first success, so a momentary
+poll race under load never flashes a false outage.
 
 ## Credits
 

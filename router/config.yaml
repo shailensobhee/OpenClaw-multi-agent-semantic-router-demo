@@ -14,21 +14,21 @@ providers:
       backend_refs:
         - name: "b05"
           provider: vllm
-          endpoint: "host.docker.internal:8001"
+          endpoint: "qwen-05b:8001"
           protocol: "http"
           weight: 100
     - name: "Qwen3.5-9B"
       backend_refs:
         - name: "b7"
           provider: vllm
-          endpoint: "host.docker.internal:8002"
+          endpoint: "qwen-7b:8002"
           protocol: "http"
           weight: 100
     - name: "Qwen3.8-27B"
       backend_refs:
         - name: "b32"
           provider: vllm
-          endpoint: "host.docker.internal:8003"
+          endpoint: "qwen-32b:8003"
           protocol: "http"
           weight: 100
 
