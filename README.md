@@ -1,5 +1,7 @@
 # OpenClaw multi-agent swarm, routed across a Qwen model fleet on one AMD Instinct MI300X
 
+**Author: Shailen Sobhee**
+
 A live booth demo (AMD ai-Pulse 2026, Paris) showing that **[OpenClaw](https://openclaw.ai) multi-agent workflows run great on local models**, served by **[vLLM](https://github.com/vllm-project/vllm)** on a single **AMD Instinct&trade; MI300X** with **ROCm&trade;**, and made efficient by the **[vLLM Semantic Router](https://github.com/vllm-project/semantic-router)**.
 
 Instead of one big model answering everything, a small CPU-side **decision tier** classifies each request and routes it to the **right-sized** model: trivial turns go to a 0.5B, standard turns to a 7B, and genuine reasoning to a 32B. All three models are **co-resident on one GPU**, so easy requests run ~4x faster and the GPU stays fed.
@@ -136,4 +138,4 @@ Point OpenClaw's provider at the router in `~/.openclaw/openclaw.json`:
 - [Qwen2.5](https://github.com/QwenLM/Qwen2.5) models
 - AMD Instinct&trade; MI300X + ROCm&trade;
 
-Built for the AMD ai-Pulse 2026 booth. Diagrams use the AMD brand palette and Klavika typeface.
+I built this demo for the ai-Pulse 2026 event in Paris that AMD is sponsoring.
