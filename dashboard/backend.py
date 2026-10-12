@@ -51,19 +51,63 @@ def health():
 
 @app.route("/api/models")
 def models():
+    """Show the REAL backend fleet the router chooses between, not the router's
+    virtual aliases.
+
+    The router's own /v1/models only advertises the meta-models (vllm-sr/auto,
+    auto, MoM) which hold no weights, so listing those tells a booth visitor
+    nothing. Instead we probe each real vLLM backend directly (loopback ports the
+    fleet publishes) and report the actual Qwen model + its routing tier. We also
+    surface the router aliases separately so the "how" is still visible.
+    """
     import urllib.request
+
+    # tier label -> (loopback port, human role). Override via FLEET_BACKENDS
+    # as "name=host:port=role,..." if the fleet changes.
+    fleet = os.environ.get(
+        "FLEET_BACKENDS",
+        "2B=127.0.0.1:8001=fast / trivial,"
+        "9B=127.0.0.1:8002=standard,"
+        "27B=127.0.0.1:8003=hard / reasoning")
+
+    def _probe(hostport):
+        try:
+            with urllib.request.urlopen(f"http://{hostport}/v1/models", timeout=3) as r:
+                data = json.loads(r.read().decode())
+            d = data.get("data", [])
+            if d:
+                return d[0].get("id"), d[0].get("max_model_len")
+        except Exception:
+            pass
+        return None, None
+
+    details, served = [], []
+    for item in [x for x in fleet.split(",") if x.strip()]:
+        parts = item.split("=")
+        tier = parts[0].strip()
+        hostport = parts[1].strip() if len(parts) > 1 else ""
+        role = parts[2].strip() if len(parts) > 2 else ""
+        mid, mml = _probe(hostport)
+        up = mid is not None
+        details.append({"id": mid or tier, "tier": tier, "role": role,
+                        "max_model_len": mml, "up": up,
+                        "owned_by": "vLLM (local)"})
+        if up:
+            served.append(mid)
+
+    # router virtual aliases (the "how"), best-effort, non-fatal.
+    aliases = []
     try:
-        with urllib.request.urlopen(f"{VLLM_URL}/v1/models", timeout=4) as r:
-            data = json.loads(r.read().decode())
-        served = [m.get("id") for m in data.get("data", [])]
-        # also surface max_model_len if present
-        details = [{"id": m.get("id"), "max_model_len": m.get("max_model_len"),
-                    "owned_by": m.get("owned_by")} for m in data.get("data", [])]
-        return jsonify({"ok": True, "served_by": "vLLM (local)", "models": served,
-                        "details": details})
-    except Exception as e:
-        return jsonify({"ok": False, "served_by": "vLLM (local)", "models": [],
-                        "error": f"vLLM not reachable: {e.__class__.__name__}"}), 200
+        with urllib.request.urlopen(f"{ROUTER_URL}/v1/models", timeout=3) as r:
+            aliases = [m.get("id") for m in json.loads(r.read().decode()).get("data", [])]
+    except Exception:
+        pass
+
+    ok = len(served) > 0
+    return jsonify({"ok": ok, "served_by": "vLLM (local) via Semantic Router",
+                    "models": served, "details": details,
+                    "router_aliases": aliases,
+                    "error": None if ok else "no backends reachable"}), 200
 
 
 def _amdgpu_card_path():

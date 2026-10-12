@@ -359,19 +359,28 @@ async function pollRoute(){
 }
 pollRoute();setInterval(pollRoute,3200);
 
-/* ---------- REAL: models from vLLM ---------- */
+/* ---------- REAL: backend fleet the router chooses between ---------- */
 async function pollModels(){
   try{const r=await fetch('/api/models');const j=await r.json();
     const box=document.getElementById('models');const b=document.getElementById('modelsBadge');
-    if(j.ok && j.models.length){
-      box.innerHTML=j.details.map(m=>`<div class="model-row"><div class="mi">${(m.id||'?')[0].toUpperCase()}</div>
-        <div class="mn"><b>${m.id}</b><small>${m.max_model_len?('ctx '+m.max_model_len+' &middot; '):''}served by vLLM &middot; local</small></div>
-        <div class="ms">&#9679; serving</div></div>`).join('');
-      b.className='badge live dot';b.textContent='LIVE \u00b7 vLLM';
+    if(j.ok && j.details && j.details.length){
+      box.innerHTML=j.details.map(m=>{
+        const up=m.up!==false;
+        const ctx=m.max_model_len?('ctx '+(m.max_model_len/1024|0)+'K &middot; '):'';
+        const role=m.role?(m.role+' &middot; '):'';
+        const dot=up?'&#9679; serving':'&#9675; starting';
+        const dotcol=up?'':' style="color:var(--warn)"';
+        return `<div class="model-row"><div class="mi">${m.tier||((m.id||'?')[0].toUpperCase())}</div>
+        <div class="mn"><b>${m.id}</b><small>${role}${ctx}vLLM &middot; local</small></div>
+        <div class="ms"${dotcol}>${dot}</div></div>`;}).join('');
+      const al=(j.router_aliases&&j.router_aliases.length)?
+        `<div class="route-meta" style="margin-top:6px"><span>router picks via <b>${j.router_aliases.join('</b> / <b>')}</b></span></div>`:'';
+      box.innerHTML+=al;
+      b.className='badge live dot';b.textContent='LIVE \u00b7 '+j.details.filter(m=>m.up!==false).length+' models';
     }else{
-      box.innerHTML=`<div class="model-row"><div class="mi">!</div><div class="mn"><b>vLLM starting / not reachable</b>
+      box.innerHTML=`<div class="model-row"><div class="mi">!</div><div class="mn"><b>backends starting / not reachable</b>
         <small>${(j.error||'no models yet')}</small></div><div class="ms" style="color:var(--warn)">&#9679; wait</div></div>`;
-      b.className='badge sim dot';b.textContent='vLLM DOWN';
+      b.className='badge sim dot';b.textContent='fleet DOWN';
     }
   }catch(e){}
 }
