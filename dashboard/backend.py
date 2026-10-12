@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""
+OpenClaw Swarm booth backend (:7000).
+
+Serves the swarm wall-display page AND exposes REAL telemetry so booth visitors
+can see exactly what is running:
+  GET /                -> the demo page (index.html)
+  GET /api/models      -> live model list from the local vLLM (/v1/models)
+  GET /api/gpu         -> live rocm-smi (VRAM used/total, utilisation)
+  GET /api/health      -> is vLLM actually up and serving?
+  GET /api/logs/stream -> Server-Sent Events: live `docker logs -f vllm`
+
+Nothing here is simulated. If vLLM is down, the endpoints say so honestly.
+"""
+import json
+import os
+import re
+import subprocess
+import time
+from pathlib import Path
+
+from flask import Flask, Response, jsonify, request, send_from_directory
+
+BASE = Path(__file__).resolve().parent
+VLLM_URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000")
+VLLM_CONTAINER = os.environ.get("VLLM_CONTAINER", "vllm")
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def index():
+    return send_from_directory(BASE, "index.html")
+
+
+@app.route("/api/health")
+def health():
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{VLLM_URL}/health", timeout=3) as r:
+            up = r.status == 200
+    except Exception:
+        up = False
+    return jsonify({"vllm_up": up, "vllm_url": VLLM_URL, "ts": time.time()})
+
+
+@app.route("/api/models")
+def models():
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{VLLM_URL}/v1/models", timeout=4) as r:
+            data = json.loads(r.read().decode())
+        served = [m.get("id") for m in data.get("data", [])]
+        # also surface max_model_len if present
+        details = [{"id": m.get("id"), "max_model_len": m.get("max_model_len"),
+                    "owned_by": m.get("owned_by")} for m in data.get("data", [])]
+        return jsonify({"ok": True, "served_by": "vLLM (local)", "models": served,
+                        "details": details})
+    except Exception as e:
+        return jsonify({"ok": False, "served_by": "vLLM (local)", "models": [],
+                        "error": f"vLLM not reachable: {e.__class__.__name__}"}), 200
+
+
+def _rocm_smi():
+    """Return real VRAM + util + power + temp from rocm-smi. Honest fallback."""
+    try:
+        out = subprocess.check_output(
+            ["rocm-smi", "--showmeminfo", "vram", "--showuse",
+             "--showpower", "--showtemp", "--json"],
+            stderr=subprocess.DEVNULL, timeout=6).decode()
+        j = json.loads(out)
+        card = next(iter(j.values())) if j else {}
+        used = int(card.get("VRAM Total Used Memory (B)", 0))
+        total = int(card.get("VRAM Total Memory (B)", 0))
+        util = card.get("GPU use (%)", card.get("GPU Use (%)", "0"))
+
+        def _num(*keys):
+            for k in card:
+                for key in keys:
+                    if key.lower() in k.lower():
+                        try:
+                            return round(float(str(card[k]).strip()), 1)
+                        except Exception:
+                            pass
+            return None
+
+        return {"ok": True, "vram_used_gb": round(used / 1e9, 1),
+                "vram_total_gb": round(total / 1e9, 1),
+                "util_pct": int(str(util).strip() or 0),
+                "power_w": _num("Socket Graphics Package Power", "Average Graphics Package Power"),
+                "temp_c": _num("Temperature (Sensor junction)", "Temperature (Sensor edge)")}
+    except Exception as e:
+        return {"ok": False, "error": f"rocm-smi: {e.__class__.__name__}"}
+
+
+@app.route("/api/gpu")
+def gpu():
+    return jsonify(_rocm_smi())
+
+
+def _vllm_counter():
+    """Read vLLM's cumulative generation_tokens_total counter (Prometheus).
+
+    The swarm routes through the Semantic Router across SEVERAL co-resident vLLM
+    backends, and Envoy (:8899) does NOT expose vLLM's Prometheus /metrics. So we
+    scrape each backend's own /metrics and SUM the fleet. Set VLLM_METRICS_URLS to
+    a comma-separated list to override; default = the three Qwen backends.
+    """
+    import urllib.request
+    urls = os.environ.get(
+        "VLLM_METRICS_URLS",
+        "http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003",
+    ).split(",")
+    gen_total = 0.0
+    running_total = 0.0
+    any_ok = False
+    for base in urls:
+        base = base.strip().rstrip("/")
+        if not base:
+            continue
+        try:
+            raw = urllib.request.urlopen(base + "/metrics", timeout=4).read().decode()
+        except Exception:
+            continue
+        for line in raw.splitlines():
+            if line.startswith("#"):
+                continue
+            if line.startswith("vllm:generation_tokens_total"):
+                gen_total += float(line.rsplit(" ", 1)[1]); any_ok = True
+            elif line.startswith("vllm:num_requests_running"):
+                running_total += float(line.rsplit(" ", 1)[1])
+    if not any_ok:
+        return None, 0.0
+    return gen_total, running_total
+
+
+@app.route("/api/vllm_throughput")
+def vllm_throughput():
+    """OPTION 1: true live server-side throughput = rate of vLLM's generation
+    token counter sampled over a short interval. Non-zero whenever the GPU is
+    actually generating, independent of the swarm's per-turn accounting."""
+    g0, _ = _vllm_counter()
+    if g0 is None:
+        return jsonify({"ok": False, "tok_s": None, "error": "vllm /metrics unreachable"})
+    t0 = time.time()
+    time.sleep(1.0)
+    g1, running = _vllm_counter()
+    dt = time.time() - t0
+    tps = round((g1 - g0) / dt, 1) if (g1 is not None and dt > 0) else 0.0
+    if tps < 0:
+        tps = 0.0
+    return jsonify({"ok": True, "tok_s": tps, "requests_running": int(running)})
+
+
+SWARM_STATE = Path(os.environ.get("SWARM_STATE", str(BASE / "state.json")))
+
+
+@app.route("/api/swarm")
+def swarm():
+    """Live state written by the real OpenClaw swarm orchestrator (swarm.py)."""
+    try:
+        data = json.loads(SWARM_STATE.read_text())
+        # freshness: if the orchestrator stopped writing, say so
+        age = time.time() - data.get("updated", 0)
+        data["stale"] = age > 90
+        data["age_s"] = round(age, 1)
+        return jsonify({"ok": True, **data})
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "swarm not started yet", "agents": []})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{e.__class__.__name__}", "agents": []})
+
+
+LOADGEN_STATE = Path(os.environ.get("LOADGEN_STATE", str(BASE / "loadgen.json")))
+LOADGEN_CONTROL = Path(os.environ.get("LOADGEN_CONTROL", str(BASE / "loadgen.control")))
+
+
+@app.route("/api/loadgen")
+def loadgen():
+    """Live stats from the GPU-saturation load generator (loadgen.py)."""
+    try:
+        data = json.loads(LOADGEN_STATE.read_text())
+        age = time.time() - data.get("updated", 0)
+        data["stale"] = age > 10
+        data["age_s"] = round(age, 1)
+        return jsonify(data)
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "loadgen not started"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{e.__class__.__name__}"})
+
+
+@app.route("/api/loadgen/toggle", methods=["POST", "GET"])
+def loadgen_toggle():
+    """Turn GPU saturation on/off without restarting the service."""
+    want = request.args.get("state", "").lower()
+    if want not in ("on", "off"):
+        # flip based on current control file
+        cur = ""
+        try:
+            cur = LOADGEN_CONTROL.read_text().strip().lower()
+        except Exception:
+            cur = "on"
+        want = "off" if cur != "off" else "on"
+    try:
+        LOADGEN_CONTROL.write_text("off" if want == "off" else "on")
+        return jsonify({"ok": True, "state": want})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{e.__class__.__name__}"})
+
+
+@app.route("/api/logs/stream")
+def logs_stream():
+    """Stream real `docker logs -f` from the live inference fleet as SSE.
+
+    The swarm now routes across SEVERAL co-resident vLLM backends plus the
+    Semantic Router, so we multiplex each container's logs into one stream with a
+    short name prefix. Set VLLM_LOG_CONTAINERS to a comma-separated list to
+    override; default = the three Qwen backends + the router (routing decisions).
+    Only containers that actually exist are attached, so a missing one never
+    spams "container not found".
+    """
+    import threading, queue, shutil
+    names = os.environ.get(
+        "VLLM_LOG_CONTAINERS",
+        "qwen-05b,qwen-7b,qwen-32b,vllm-sr-router-container",
+    ).split(",")
+    # short, booth-friendly labels
+    label = {
+        "qwen-05b": "0.5B", "qwen-7b": "7B", "qwen-32b": "32B",
+        "vllm-sr-router-container": "router",
+    }
+
+    def _exists(name):
+        try:
+            out = subprocess.check_output(
+                ["docker", "ps", "--format", "{{.Names}}"],
+                stderr=subprocess.DEVNULL, timeout=5).decode().split()
+            return name in out
+        except Exception:
+            return False
+
+    q = queue.Queue(maxsize=2000)
+    procs = []
+    attached = []
+
+    def _pump(name, tag):
+        try:
+            p = subprocess.Popen(
+                ["docker", "logs", "-f", "--tail", "20", name],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1,
+                universal_newlines=True)
+            procs.append(p)
+            for line in iter(p.stdout.readline, ""):
+                line = line.rstrip("\n").replace("\r", "")
+                if not line:
+                    continue
+                # Drop health/metrics access-log noise (the dashboard polls these
+                # every second) so the booth sees MEANINGFUL inference lines:
+                # chat completions, throughput stats, routing decisions.
+                if ("/metrics" in line or "/health" in line
+                        or "GET /v1/models" in line):
+                    continue
+                try:
+                    q.put_nowait("[%s] %s" % (tag, line))
+                except queue.Full:
+                    pass
+        except Exception:
+            pass
+
+    def generate():
+        for name in [n.strip() for n in names if n.strip()]:
+            tag = label.get(name, name)
+            if _exists(name):
+                attached.append(tag)
+                threading.Thread(target=_pump, args=(name, tag), daemon=True).start()
+        if attached:
+            yield "event: hello\ndata: attached to live fleet: %s\n\n" % ", ".join(attached)
+        else:
+            yield "event: hello\ndata: no inference containers running yet\n\n"
+        try:
+            while True:
+                try:
+                    line = q.get(timeout=15)
+                    yield "data: %s\n\n" % line
+                except queue.Empty:
+                    # heartbeat so the SSE connection + booth tile stay alive
+                    yield ": keepalive\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            for p in procs:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "7000")), threaded=True)

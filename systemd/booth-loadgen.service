@@ -1,0 +1,19 @@
+[Unit]
+Description=ai-Pulse booth GPU saturation load generator
+After=vllm-sr.service network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/openclaw-swarm
+Environment=LOADGEN_URL=http://127.0.0.1:8899/v1
+Environment=LOADGEN_MODEL=vllm-sr/auto
+Environment=LOADGEN_CONCURRENCY=24
+Environment=LOADGEN_MAX_TOKENS=128
+Environment=LOADGEN_STATE=/opt/openclaw-swarm/loadgen.json
+Environment=LOADGEN_CONTROL=/opt/openclaw-swarm/loadgen.control
+ExecStart=/opt/openclaw-swarm/.venv/bin/python loadgen.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

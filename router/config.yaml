@@ -1,0 +1,89 @@
+version: v0.3
+
+listeners:
+  - name: "http-8899"
+    address: "0.0.0.0"
+    port: 8899
+    timeout: "300s"
+
+providers:
+  defaults:
+    model: "Qwen2.5-7B-Instruct"
+  models:
+    - name: "Qwen2.5-0.5B-Instruct"
+      backend_refs:
+        - name: "b05"
+          provider: vllm
+          endpoint: "host.docker.internal:8001"
+          protocol: "http"
+          weight: 100
+    - name: "Qwen2.5-7B-Instruct"
+      backend_refs:
+        - name: "b7"
+          provider: vllm
+          endpoint: "host.docker.internal:8002"
+          protocol: "http"
+          weight: 100
+    - name: "Qwen2.5-32B-Instruct"
+      backend_refs:
+        - name: "b32"
+          provider: vllm
+          endpoint: "host.docker.internal:8003"
+          protocol: "http"
+          weight: 100
+
+routing:
+  strategy: priority
+
+  modelCards:
+    - name: "Qwen2.5-0.5B-Instruct"
+    - name: "Qwen2.5-7B-Instruct"
+    - name: "Qwen2.5-32B-Instruct"
+
+  signals:
+    keywords:
+      - name: "hard_reasoning"
+        operator: "OR"
+        method: "regex"
+        case_sensitive: false
+        keywords: ["\\bprove\\b", "\\bproof\\b", "\\btheorem\\b", "\\bderive\\b", "step by step", "\\breasoning\\b", "\\banalyze\\b", "\\balgorithm\\b", "\\boptimize\\b", "\\bdebug\\b", "\\barchitecture\\b", "trade-?off", "explain why", "design an", "\\brefactor\\b"]
+      - name: "trivial"
+        operator: "OR"
+        method: "regex"
+        case_sensitive: false
+        keywords: ["\\bhello\\b", "\\bhi there\\b", "\\bthanks\\b", "thank you", "good morning", "how are you", "say hello", "\\bgreeting", "capitalize", "echo back", "repeat after"]
+
+  decisions:
+    - name: "hard-to-32b"
+      description: "Reasoning/coding/analysis -> 32B."
+      priority: 10
+      rules:
+        operator: "OR"
+        conditions:
+          - type: "keyword"
+            name: "hard_reasoning"
+      modelRefs:
+        - model: "Qwen2.5-32B-Instruct"
+          use_reasoning: false
+
+    - name: "trivial-to-0.5b"
+      description: "Greetings/formatting/trivial -> 0.5B (fastest)."
+      priority: 20
+      rules:
+        operator: "OR"
+        conditions:
+          - type: "keyword"
+            name: "trivial"
+      modelRefs:
+        - model: "Qwen2.5-0.5B-Instruct"
+          use_reasoning: false
+
+    - name: "default-route"
+      description: "Everything else -> standard 7B."
+      priority: 100
+      rules:
+        operator: "AND"
+        conditions: []
+      modelRefs:
+        - model: "Qwen2.5-7B-Instruct"
+          use_reasoning: false

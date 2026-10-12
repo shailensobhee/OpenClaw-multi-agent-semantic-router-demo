@@ -1,0 +1,15 @@
+[Unit]
+Description=vLLM Semantic Router (Qwen fleet) booth demo
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/vsr_run
+ExecStart=/opt/vsr_venv/bin/vllm-sr serve --config /opt/vsr_run/config.yaml
+ExecStop=/opt/vsr_venv/bin/vllm-sr stop
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

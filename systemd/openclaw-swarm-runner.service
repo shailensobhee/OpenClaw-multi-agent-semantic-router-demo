@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenClaw continuous rolling swarm orchestrator
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/openclaw-swarm
+Environment=VLLM_API_KEY=local-vllm
+# Route every agent through the Semantic Router auto model.
+Environment=SWARM_MODEL=vllm/vllm-sr/auto
+Environment=SWARM_STATE=/opt/openclaw-swarm/state.json
+Environment=SWARM_CONCURRENCY=12
+Environment=SWARM_TURN_TIMEOUT=90
+Environment=SWARM_THINKING=off
+Environment=HOME=/root
+ExecStart=/opt/openclaw-swarm/.venv/bin/python swarm.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
