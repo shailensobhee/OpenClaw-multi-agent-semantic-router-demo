@@ -57,7 +57,7 @@ dashboard/  backend.py          Flask API: live swarm state, GPU stats, fleet th
 scripts/    start_qwen_fleet.sh launch 0.5B+7B+32B co-resident on one MI300X
             install_vsr.sh      install the Semantic Router CLI + init config
             serve_vsr.sh        bring up the router stack (Envoy :8899 + router + dashboard)
-docs/       diagrams/           the AMD-branded diagrams above (Klavika)
+docs/       diagrams/           the AMD-branded diagrams above
 systemd/    *.service           durable units for the fleet, router, swarm, dashboard, loadgen
 ```
 
