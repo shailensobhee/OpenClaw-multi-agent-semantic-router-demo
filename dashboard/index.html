@@ -16,15 +16,48 @@
 *{box-sizing:border-box;}
 
 /* Prominent current-question banner (full text, no clipping) */
-.qbanner{margin:2px 0 14px;padding:13px 16px;border-radius:12px;
+.qbanner{margin:2px 0 12px;padding:10px 14px;border-radius:12px;flex-shrink:0;
   background:linear-gradient(135deg,rgba(237,28,36,.14),rgba(237,28,36,.04));
   border:1px solid rgba(237,28,36,.45);border-left:4px solid var(--amd-red);
   box-shadow:0 0 22px rgba(237,28,36,.10) inset;}
-.qbanner .qlabel{font-family:var(--mono);font-size:11px;letter-spacing:1.5px;
-  text-transform:uppercase;color:var(--amd-red);font-weight:700;margin-bottom:6px;}
-.qbanner .qtext{font-family:var(--heading);font-size:21px;line-height:1.3;
-  font-weight:600;color:var(--text);word-break:break-word;}
-@media(max-width:900px){.qbanner .qtext{font-size:18px;}}
+.qbanner .qlabel{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--amd-red);font-weight:700;margin-bottom:5px;}
+.qbanner .qtext{font-family:var(--heading);font-size:15px;line-height:1.35;
+  font-weight:600;color:var(--text);white-space:normal;word-break:break-word;
+  overflow-wrap:anywhere;max-height:5.4em;overflow-y:auto;}
+@media(max-width:900px){.qbanner .qtext{font-size:14px;}}
+
+/* Semantic routing visualiser */
+.route-prompt{font-family:var(--mono);font-size:12.5px;color:var(--text);
+  background:#0e131a;border:1px solid var(--border);border-radius:9px;
+  padding:9px 12px;margin-bottom:12px;min-height:38px;line-height:1.4;
+  word-break:break-word;}
+.route-prompt .cue{color:var(--amd-red);font-weight:700;}
+.route-flow{display:flex;align-items:center;gap:10px;}
+.route-stage{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:10px;
+  background:#0e131a;border:1px solid var(--border);flex-shrink:0;}
+.route-stage .rs-ico{font-size:20px;color:var(--amd-red);animation:spin 5s linear infinite;}
+.route-stage .rs-txt{display:flex;flex-direction:column;line-height:1.15;}
+.route-stage .rs-txt b{font-size:13px;color:var(--text);}
+.route-stage .rs-txt small{font-family:var(--mono);font-size:10.5px;color:var(--amd-red);font-weight:700;}
+.route-arrow{color:var(--muted);font-size:20px;flex-shrink:0;}
+.route-lanes{display:flex;flex-direction:column;gap:7px;flex:1;}
+.lane{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:9px;
+  background:#0e131a;border:1px solid var(--border);opacity:.5;
+  transition:all .35s ease;position:relative;}
+.lane .lane-tag{font-family:var(--heading);font-weight:800;font-size:13px;color:#fff;
+  background:#2a333f;border-radius:6px;padding:2px 8px;min-width:42px;text-align:center;transition:all .35s;}
+.lane .lane-nm{font-size:12.5px;color:var(--text);font-weight:600;}
+.lane .lane-hint{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto;}
+.lane.active{opacity:1;border-color:var(--amd-red);
+  background:linear-gradient(135deg,rgba(237,28,36,.18),rgba(237,28,36,.05));
+  box-shadow:0 0 20px rgba(237,28,36,.25);transform:translateX(2px);}
+.lane.active .lane-tag{background:var(--amd-red);box-shadow:0 0 12px rgba(237,28,36,.6);}
+.lane.active .lane-hint{color:var(--amd-red);font-weight:700;}
+.route-meta{margin-top:11px;font-family:var(--mono);font-size:11px;color:var(--muted);
+  display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+.route-meta b{color:var(--ok);}
+@keyframes spin{to{transform:rotate(360deg);}}
 html,body{margin:0;padding:0;height:100%;}
 body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hidden;position:relative;}
 .glow{position:fixed;inset:0;z-index:0;pointer-events:none;
@@ -163,6 +196,24 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
 
   <div class="col-right">
     <div class="panel">
+      <h3>Semantic routing <span class="badge live dot" id="routeBadge">LIVE &middot; vLLM-SR</span></h3>
+      <div class="route-prompt" id="routePrompt">probing the router&hellip;</div>
+      <div class="route-flow">
+        <div class="route-stage" id="rsClassify">
+          <div class="rs-ico">&#9881;</div>
+          <div class="rs-txt"><b>Classify</b><small id="rsDecision">&mdash;</small></div>
+        </div>
+        <div class="route-arrow">&#8594;</div>
+        <div class="route-lanes">
+          <div class="lane" id="lane05"><span class="lane-tag">2B</span><span class="lane-nm">Qwen3.5-2B</span><span class="lane-hint">trivial</span></div>
+          <div class="lane" id="lane7"><span class="lane-tag">9B</span><span class="lane-nm">Qwen3.5-9B</span><span class="lane-hint">default</span></div>
+          <div class="lane" id="lane32"><span class="lane-tag">27B</span><span class="lane-nm">Qwen3.8-27B</span><span class="lane-hint">hard reasoning</span></div>
+        </div>
+      </div>
+      <div class="route-meta"><span id="routeMeta">routing on the CPU &middot; 0 GPU VRAM</span></div>
+    </div>
+
+    <div class="panel">
       <h3>Models in use <span class="badge live dot" id="modelsBadge">LIVE &middot; vLLM</span></h3>
       <div class="models-list" id="models">
         <div class="model-row"><div class="mi">&hellip;</div><div class="mn"><b>querying vLLM&hellip;</b><small>/v1/models</small></div></div>
@@ -247,6 +298,66 @@ async function pollSwarm(){
   }catch(e){}
 }
 pollSwarm();setInterval(pollSwarm,1500);
+
+/* ---------- REAL: semantic routing visualiser ---------- */
+/* Polls /api/route_probe, which sends ONE prompt through the vLLM Semantic
+   Router and reports the REAL decision from the router's x-vsr-* headers.
+   We light up the model lane the router actually chose. Nothing is faked. */
+function laneFor(model){
+  // Match the lane by backend TIER, newest fleet first (2B/9B/27B), with the
+  // older 0.5B/7B/32B names kept so an older backend still lights a lane.
+  const m=(model||'').toLowerCase();
+  if(m.includes('2b')||m.includes('0.5b'))return 'lane05';   // fast tier
+  if(m.includes('27b')||m.includes('32b'))return 'lane32';   // hard tier
+  if(m.includes('9b')||m.includes('7b'))return 'lane7';      // standard tier
+  return null;
+}
+let rsSample=0;
+// A single slow/missed probe must NOT scream "router down" on a booth wall: the
+// router is healthy but one 20s-timeout poll can lose a race under load. Only
+// flip the badge to down after MISS_TOLERANCE consecutive failures; recover on
+// the first success.
+let routeMiss=0;const MISS_TOLERANCE=3;
+async function pollRoute(){
+  const badge=document.getElementById('routeBadge');
+  const markDown=(prompt,err)=>{
+    routeMiss++;
+    if(routeMiss<MISS_TOLERANCE){
+      // transient: keep the last good state, show a soft reconnecting hint
+      badge.className='badge live dot';badge.textContent='LIVE \u00b7 reconnecting\u2026';
+      return;
+    }
+    badge.className='badge sim dot';badge.textContent='router down';
+    const pEl=document.getElementById('routePrompt');
+    const dEl=document.getElementById('rsDecision');
+    const mEl=document.getElementById('routeMeta');
+    pEl.textContent=prompt||'router unreachable';
+    dEl.textContent='\u2014';mEl.innerHTML=(err||'router unreachable');
+  };
+  try{
+    const r=await fetch('/api/route_probe?sample='+rsSample);const j=await r.json();
+    rsSample=(rsSample+1)%5;
+    const pEl=document.getElementById('routePrompt');
+    const dEl=document.getElementById('rsDecision');
+    const mEl=document.getElementById('routeMeta');
+    if(!j.ok){ markDown(j.prompt,j.error); return; }
+    routeMiss=0;
+    ['lane05','lane7','lane32'].forEach(id=>document.getElementById(id).classList.remove('active'));
+    badge.className='badge live dot';badge.textContent='LIVE \u00b7 vLLM-SR';
+    pEl.innerHTML='<span class="cue">prompt &#9654;</span> '+(j.prompt||'');
+    dEl.textContent=j.decision||'\u2014';
+    const lane=laneFor(j.model);
+    if(lane){
+      // small delay so the classify->lane flow reads as a decision, not a jump
+      setTimeout(()=>{const el=document.getElementById(lane);if(el)el.classList.add('active');},180);
+    }
+    const rl=j.route_latency_ms?('route decided in <b>'+(+j.route_latency_ms).toFixed(2)+' ms</b> on CPU'):'routing on CPU';
+    mEl.innerHTML=rl+'<span>served by '+(j.model||'?')+'</span>';
+  }catch(e){
+    markDown(null,'router unreachable');
+  }
+}
+pollRoute();setInterval(pollRoute,3200);
 
 /* ---------- REAL: models from vLLM ---------- */
 async function pollModels(){

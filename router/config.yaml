@@ -8,23 +8,23 @@ listeners:
 
 providers:
   defaults:
-    model: "Qwen2.5-7B-Instruct"
+    model: "Qwen3.5-9B"
   models:
-    - name: "Qwen2.5-0.5B-Instruct"
+    - name: "Qwen3.5-2B"
       backend_refs:
         - name: "b05"
           provider: vllm
           endpoint: "host.docker.internal:8001"
           protocol: "http"
           weight: 100
-    - name: "Qwen2.5-7B-Instruct"
+    - name: "Qwen3.5-9B"
       backend_refs:
         - name: "b7"
           provider: vllm
           endpoint: "host.docker.internal:8002"
           protocol: "http"
           weight: 100
-    - name: "Qwen2.5-32B-Instruct"
+    - name: "Qwen3.8-27B"
       backend_refs:
         - name: "b32"
           provider: vllm
@@ -36,9 +36,9 @@ routing:
   strategy: priority
 
   modelCards:
-    - name: "Qwen2.5-0.5B-Instruct"
-    - name: "Qwen2.5-7B-Instruct"
-    - name: "Qwen2.5-32B-Instruct"
+    - name: "Qwen3.5-2B"
+    - name: "Qwen3.5-9B"
+    - name: "Qwen3.8-27B"
 
   signals:
     keywords:
@@ -63,7 +63,7 @@ routing:
           - type: "keyword"
             name: "hard_reasoning"
       modelRefs:
-        - model: "Qwen2.5-32B-Instruct"
+        - model: "Qwen3.8-27B"
           use_reasoning: false
 
     - name: "trivial-to-0.5b"
@@ -75,7 +75,7 @@ routing:
           - type: "keyword"
             name: "trivial"
       modelRefs:
-        - model: "Qwen2.5-0.5B-Instruct"
+        - model: "Qwen3.5-2B"
           use_reasoning: false
 
     - name: "default-route"
@@ -85,5 +85,5 @@ routing:
         operator: "AND"
         conditions: []
       modelRefs:
-        - model: "Qwen2.5-7B-Instruct"
+        - model: "Qwen3.5-9B"
           use_reasoning: false

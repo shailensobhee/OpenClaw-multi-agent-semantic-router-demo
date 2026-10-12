@@ -25,7 +25,7 @@ import uuid
 from pathlib import Path
 
 STATE = Path(os.environ.get("SWARM_STATE", "/opt/openclaw-swarm/state.json"))
-MODEL = os.environ.get("SWARM_MODEL", "vllm/Qwen2.5-7B-Instruct")
+MODEL = os.environ.get("SWARM_MODEL", "vllm/Qwen3.5-9B")
 STATE_ROOT = Path(os.environ.get("SWARM_STATE_ROOT", "/opt/openclaw-swarm/agent-state"))
 MAX_WORKERS = int(os.environ.get("SWARM_CONCURRENCY", "8"))
 TURN_TIMEOUT = int(os.environ.get("SWARM_TURN_TIMEOUT", "150"))

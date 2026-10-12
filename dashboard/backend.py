@@ -30,7 +30,12 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return send_from_directory(BASE, "index.html")
+    # No-cache so the booth wall display always pulls the freshest UI after a deploy.
+    resp = send_from_directory(BASE, "index.html")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.route("/api/health")
@@ -175,6 +180,85 @@ LOADGEN_STATE = Path(os.environ.get("LOADGEN_STATE", str(BASE / "loadgen.json"))
 LOADGEN_CONTROL = Path(os.environ.get("LOADGEN_CONTROL", str(BASE / "loadgen.control")))
 
 
+# Router endpoint (Envoy OpenAI entrypoint). Defaults to VLLM_URL, which in the
+# booth deployment already points at the Semantic Router on :8899.
+ROUTER_URL = os.environ.get("ROUTER_URL", VLLM_URL)
+ROUTER_MODEL = os.environ.get("ROUTER_MODEL", "vllm-sr/auto")
+
+# Sample prompts for the routing visualiser, one per decision the router makes.
+# These are illustrative booth prompts; the actual decision always comes from
+# the live router headers, never hard-coded here.
+ROUTE_SAMPLES = [
+    {"label": "Trivial", "prompt": "hello there, thanks!"},
+    {"label": "Standard", "prompt": "Summarize what AMD ROCm is in one sentence."},
+    {"label": "Translation", "prompt": "Translate 'good morning' into natural French."},
+    {"label": "Hard reasoning",
+     "prompt": "Prove step by step that there are infinitely many primes, and analyze the argument."},
+    {"label": "Code task",
+     "prompt": "Refactor and optimize this loop; explain the algorithmic complexity change."},
+]
+
+
+@app.route("/api/route_probe")
+def route_probe():
+    """Send ONE prompt through the Semantic Router and report its REAL routing
+    decision, captured from the router's x-vsr-* response headers. This is the
+    data source for the live routing visualiser. Nothing is simulated: if the
+    router is down, this says so.
+
+    Query params:
+      prompt=<text>   custom prompt (optional)
+      sample=<int>    index into ROUTE_SAMPLES (optional; default rotates)
+    """
+    import urllib.request
+    prompt = request.args.get("prompt", "").strip()
+    if not prompt:
+        try:
+            idx = int(request.args.get("sample", int(time.time() // 3) % len(ROUTE_SAMPLES)))
+        except ValueError:
+            idx = 0
+        idx = idx % len(ROUTE_SAMPLES)
+        prompt = ROUTE_SAMPLES[idx]["prompt"]
+
+    body = json.dumps({
+        "model": ROUTER_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 1,          # we only care about the ROUTING decision, not the text
+        "temperature": 0,
+    }).encode()
+    req = urllib.request.Request(
+        f"{ROUTER_URL}/v1/chat/completions", data=body,
+        headers={"Content-Type": "application/json"}, method="POST")
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            hdr = {k.lower(): v for k, v in r.headers.items()}
+            payload = json.loads(r.read().decode() or "{}")
+        decision = hdr.get("x-vsr-selected-decision")
+        model = hdr.get("x-vsr-selected-model") or payload.get("model")
+        return jsonify({
+            "ok": True,
+            "prompt": prompt,
+            "decision": decision,                               # e.g. hard-to-32b
+            "model": model,                                     # e.g. Qwen3.8-27B
+            "confidence": hdr.get("x-vsr-selected-confidence"),
+            "algorithm": hdr.get("x-vsr-selected-algorithm"),   # static / classifier
+            "route_latency_ms": hdr.get("x-vsr-routing-latency-ms"),
+            "roundtrip_ms": round((time.time() - t0) * 1000, 1),
+            "source": "x-vsr headers (live router)",
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "prompt": prompt,
+                        "error": f"{e.__class__.__name__}: {e}",
+                        "router_url": ROUTER_URL}), 200
+
+
+@app.route("/api/route_samples")
+def route_samples():
+    """The list of sample prompts the visualiser can cycle through."""
+    return jsonify({"ok": True, "samples": ROUTE_SAMPLES, "model": ROUTER_MODEL})
+
+
 @app.route("/api/loadgen")
 def loadgen():
     """Live stats from the GPU-saturation load generator (loadgen.py)."""
@@ -227,7 +311,7 @@ def logs_stream():
     ).split(",")
     # short, booth-friendly labels
     label = {
-        "qwen-05b": "0.5B", "qwen-7b": "7B", "qwen-32b": "32B",
+        "qwen-05b": "2B", "qwen-7b": "9B", "qwen-32b": "27B",
         "vllm-sr-router-container": "router",
     }
 

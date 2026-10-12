@@ -4,15 +4,15 @@
 
 A live booth demo (AMD ai-Pulse 2026, Paris) showing that **[OpenClaw](https://openclaw.ai) multi-agent workflows run great on local models**, served by **[vLLM](https://github.com/vllm-project/vllm)** on a single **AMD Instinct&trade; MI300X** with **ROCm&trade;**, and made efficient by the **[vLLM Semantic Router](https://github.com/vllm-project/semantic-router)**.
 
-Instead of one big model answering everything, a small CPU-side **decision tier** classifies each request and routes it to the **right-sized** model: trivial turns go to a 0.5B, standard turns to a 7B, and genuine reasoning to a 32B. All three models are **co-resident on one GPU**, so easy requests run ~4x faster and the GPU stays fed.
+Instead of one big model answering everything, a small CPU-side **decision tier** classifies each request and routes it to the **right-sized** model: trivial turns go to a 2B, standard turns to a 9B, and genuine reasoning to a 27B. All three models are **co-resident on one GPU**, so easy requests run ~3x faster and the GPU stays fed.
 
 ![Architecture](docs/diagrams/diagram1-architecture.png)
 
 ## Why this is interesting
 
-- **One GPU, three models.** Qwen2.5 `0.5B` + `7B` + `32B` share a single MI300X (measured 119 GB / 192 GB VRAM). No second card, no cloud fallback.
+- **One GPU, three models.** Qwen3.5 `2B` + Qwen3.5 `9B` + Qwen3.8 `27B` share a single MI300X (measured 131 GB / 192 GB VRAM). No second card, no cloud fallback.
 - **Smart routing, not a static pin.** A keyword/regex decision tier (ModernBERT classifier available too) runs on the **CPU** inside the router: **zero GPU VRAM** cost. It sends each agent request to the cheapest model that can handle it.
-- **Real multi-agent speedup.** A 12-persona OpenClaw swarm fans out across the fleet; trivial agent turns hit the 0.5B at ~240 tok/s instead of paying for the big model.
+- **Real multi-agent speedup.** A 12-persona OpenClaw swarm fans out across the fleet; trivial agent turns hit the 2B at ~61 tok/s instead of paying for the big model.
 - **The GPU stays busy.** A continuous rolling swarm plus an optional saturation load generator push GPU idle time from a measured **52% down to 0%** at ~**1000 tok/s**.
 - **Everything is real.** No simulation. If a backend is down, the dashboard says so. Every number in these docs was measured on the live MI300X.
 
@@ -27,9 +27,9 @@ The router sits in front of the vLLM backends as an Envoy `ext-proc` filter on a
 
    | Priority | Condition | Routed to |
    |---:|---|---|
-   | `10` | `hard_reasoning` matched | **Qwen 32B** (`:8003`) |
-   | `20` | `trivial` matched | **Qwen 0.5B** (`:8001`) |
-   | `100` | default (catch-all) | **Qwen 7B** (`:8002`) |
+   | `10` | `hard_reasoning` matched | **Qwen3.8-27B** (`:8003`) |
+   | `20` | `trivial` matched | **Qwen3.5-2B** (`:8001`) |
+   | `100` | default (catch-all) | **Qwen3.5-9B** (`:8002`) |
 
 3. **Forward.** The router rewrites the request's `model` field to the chosen backend's `served-model-name` and proxies it. The response echoes which model actually served it, and the router logs a `routing_decision` line for every request, so routing is verifiable, not assumed.
 
@@ -54,7 +54,7 @@ swarm/      swarm.py            continuous rolling OpenClaw swarm orchestrator (
             loadgen.py          GPU saturation load generator (toggle-able)
 dashboard/  backend.py          Flask API: live swarm state, GPU stats, fleet throughput, log stream
             index.html          booth dashboard UI
-scripts/    start_qwen_fleet.sh launch 0.5B+7B+32B co-resident on one MI300X
+scripts/    start_qwen_fleet.sh launch 2B+9B+27B co-resident on one MI300X
             install_vsr.sh      install the Semantic Router CLI + init config
             serve_vsr.sh        bring up the router stack (Envoy :8899 + router + dashboard)
 docs/       diagrams/           the AMD-branded diagrams above
@@ -78,7 +78,7 @@ sudo bash scripts/serve_vsr.sh
 curl http://localhost:8899/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"vllm-sr/auto","messages":[{"role":"user","content":"Prove there are infinitely many primes."}]}'
-#  -> routed to Qwen 32B; a trivial "hello" would route to Qwen 0.5B
+#  -> routed to Qwen3.8-27B; a trivial "hello" would route to Qwen3.5-2B
 ```
 
 ### Run the swarm + dashboard
@@ -123,19 +123,60 @@ Point OpenClaw's provider at the router in `~/.openclaw/openclaw.json`:
 
 | Metric | Value |
 |---|---|
-| Models co-resident on one MI300X | Qwen2.5 `0.5B` + `7B` + `32B` |
-| VRAM used | 119 GB / 192 GB |
-| Per-model throughput | 0.5B ~240 tok/s, 7B ~148 tok/s, 32B ~56 tok/s |
+| Models co-resident on one MI300X | Qwen3.5 `2B` + Qwen3.5 `9B` + Qwen3.8 `27B` |
+| VRAM used | 131 GB / 192 GB |
+| Per-model throughput (single stream) | 2B ~61 tok/s, 9B ~23 tok/s, 27B ~20 tok/s |
 | Routing correctness | 4/4 intents routed to the right model (verified in router log) |
 | GPU idle, barrier rounds | ~52% |
 | GPU idle, rolling pool | ~34% |
 | GPU idle, + load generator | ~0% at ~1000 tok/s, 25 concurrent, 0 errors |
 
+## Troubleshooting: dashboard shows "router down"
+
+Two distinct causes, both addressed in this repo:
+
+1. **Container-to-host firewall drop (the real outage).** The semantic router and
+   Envoy run in Docker (bridge networks) and reach the vLLM backends, which run
+   with `--network host`, via `host.docker.internal`. On a host whose firewall
+   defaults `INPUT` to `DROP` (ufw does), that bridge-to-host traffic is dropped,
+   so Envoy returns `503 upstream connect error ... connection timeout` and the
+   dashboard badge flips to "router down". It can appear to work for a while
+   (conntrack keeps an established flow alive), then break the instant a backend
+   or Envoy restarts and the flow is re-established. Fix by allowing the Docker
+   bridge subnets into the host `INPUT` chain and persisting it so it survives a
+   reboot:
+
+   ```bash
+   # immediate
+   for net in 172.17.0.0/16 172.18.0.0/16 172.19.0.0/16; do
+     iptables -C INPUT -s $net -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -s $net -j ACCEPT
+   done
+   # persist (ufw): add these right after the "-i lo -j ACCEPT" line in
+   # /etc/ufw/before.rules, then `ufw reload`
+   #   -A ufw-before-input -s 172.17.0.0/16 -j ACCEPT
+   #   -A ufw-before-input -s 172.18.0.0/16 -j ACCEPT
+   #   -A ufw-before-input -s 172.19.0.0/16 -j ACCEPT
+   ```
+
+   Verify from inside a router/envoy container (must be `200`):
+
+   ```bash
+   docker exec vllm-sr-router-container \
+     curl -m6 -o /dev/null -w '%{http_code}\n' http://host.docker.internal:8001/v1/models
+   ```
+
+2. **Over-eager badge on a single slow poll (cosmetic).** The dashboard probes the
+   router every ~3.2s with a 20s timeout. One poll losing a race under heavy load
+   does not mean the router is down. The frontend now tolerates up to 3 consecutive
+   missed probes (showing a soft "reconnecting" state) before it declares "router
+   down", and recovers on the first success. The router stays healthy with 0
+   restarts; the badge no longer flaps.
+
 ## Credits
 
 - [OpenClaw](https://openclaw.ai) multi-agent runtime
 - [vLLM](https://github.com/vllm-project/vllm) and the [vLLM Semantic Router](https://github.com/vllm-project/semantic-router)
-- [Qwen2.5](https://github.com/QwenLM/Qwen2.5) models
+- [Qwen3](https://github.com/QwenLM/Qwen3) models (Qwen3.5 2B/9B, Qwen3.8 27B)
 - AMD Instinct&trade; MI300X + ROCm&trade;
 
 I built this demo for the ai-Pulse 2026 event in Paris that AMD is sponsoring.
