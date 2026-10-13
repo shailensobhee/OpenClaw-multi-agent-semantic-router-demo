@@ -99,7 +99,8 @@ def run_agent(persona, topic):
     # ~8.4K tokens and 95% prefix-cached, so a short, STABLE guard string reuses
     # that cache instead of forcing re-prefill. Keep this wording constant.
     guard = "Context: AMD Instinct MI300X + ROCm only; never mention NVIDIA/CUDA. "
-    prompt = guard + persona["task"].format(topic=topic)
+    question = persona["task"].format(topic=topic)
+    prompt = guard + question
     sdir = STATE_ROOT / persona["id"]
     sdir.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
@@ -145,15 +146,18 @@ def run_agent(persona, topic):
         tps = round(out_tok / dt, 1) if dt > 0 and out_tok else 0.0
         return {
             "id": persona["id"], "ok": env_ok, "final": final.strip()[:400],
+            "question": question,
             "in_tok": in_tok, "out_tok": out_tok, "latency_s": round(dt, 1),
             "tok_s": tps, "ts": _now(),
         }
     except subprocess.TimeoutExpired:
         return {"id": persona["id"], "ok": False, "final": "(timeout)",
+                "question": question,
                 "in_tok": 0, "out_tok": 0, "latency_s": round(_now() - t0, 1),
                 "tok_s": 0.0, "ts": _now()}
     except Exception as e:
         return {"id": persona["id"], "ok": False, "final": f"(error: {e.__class__.__name__})",
+                "question": question,
                 "in_tok": 0, "out_tok": 0, "latency_s": round(_now() - t0, 1),
                 "tok_s": 0.0, "ts": _now()}
 
@@ -169,9 +173,15 @@ def main():
     """
     STATE_ROOT.mkdir(parents=True, exist_ok=True)
     results = {p["id"]: {"id": p["id"], "name": p["name"], "role": p["role"],
-                         "status": "thinking", "final": "", "out_tok": 0, "in_tok": 0,
+                         "status": "thinking", "final": "", "question": "",
+                         "out_tok": 0, "in_tok": 0,
                          "tok_s": 0.0, "latency_s": 0.0, "ts": 0} for p in ROSTER}
     PERSONA = {p["id"]: p for p in ROSTER}
+
+    def _question_for(persona, topic):
+        # The REAL instruction this agent receives (a proper imperative sentence),
+        # minus the stable AMD-context guard prefix. This is what the tile shows.
+        return persona["task"].format(topic=topic)
     cumulative_tok = 0
     cumulative_calls = 0
     # per-persona topic cursor so each agent rotates through topics independently
@@ -219,6 +229,7 @@ def main():
             tp = _topic_for(p["id"])
             results["_topic"] = tp
             results[p["id"]]["status"] = "thinking"
+            results[p["id"]]["question"] = _question_for(p, tp)
             inflight[ex.submit(run_agent, p, tp)] = p["id"]
         _publish()
 
@@ -230,7 +241,8 @@ def main():
                 r = fut.result()
                 base = results[pid]
                 base.update({"status": "done" if r["ok"] else "error",
-                             "final": r["final"], "out_tok": r["out_tok"],
+                             "final": r["final"], "question": r.get("question", base.get("question", "")),
+                             "out_tok": r["out_tok"],
                              "in_tok": r["in_tok"], "tok_s": r["tok_s"],
                              "latency_s": r["latency_s"], "ts": r["ts"]})
                 cumulative_tok += r["out_tok"]
@@ -243,6 +255,7 @@ def main():
                 p = PERSONA[pid]
                 # brief 'done' flash, then back to thinking on next publish
                 results[pid]["status"] = "thinking"
+                results[pid]["question"] = _question_for(p, tp)
                 inflight[ex.submit(run_agent, p, tp)] = pid
 
 
