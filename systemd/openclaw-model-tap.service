@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenClaw model-tap (captures real routed model per agent)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/openclaw-swarm
+Environment=TAP_ROUTER=http://127.0.0.1:8899
+Environment=TAP_CANON_KEY=local-vllm
+Environment=TAP_SIDECAR=/opt/openclaw-swarm/agent-models.json
+Environment=TAP_PORT=8898
+ExecStart=/opt/openclaw-swarm/.venv/bin/python model_tap.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

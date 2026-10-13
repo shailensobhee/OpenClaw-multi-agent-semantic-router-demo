@@ -28,6 +28,7 @@ STATE = Path(os.environ.get("SWARM_STATE", "/opt/openclaw-swarm/state.json"))
 MODEL = os.environ.get("SWARM_MODEL", "vllm/Qwen3.5-9B")
 STATE_ROOT = Path(os.environ.get("SWARM_STATE_ROOT", "/opt/openclaw-swarm/agent-state"))
 MAX_WORKERS = int(os.environ.get("SWARM_CONCURRENCY", "8"))
+MODELS_SIDECAR = Path(os.environ.get("SWARM_MODELS_SIDECAR", "/opt/openclaw-swarm/agent-models.json"))
 TURN_TIMEOUT = int(os.environ.get("SWARM_TURN_TIMEOUT", "150"))
 
 TOPICS = [
@@ -102,7 +103,11 @@ def run_agent(persona, topic):
     sdir = STATE_ROOT / persona["id"]
     sdir.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
-    env["VLLM_API_KEY"] = os.environ.get("VLLM_API_KEY", "local-vllm")
+    # Per-agent API key so the model-tap proxy can attribute the REAL routed
+    # model to THIS agent. The router ignores the key value (local auth); the
+    # tap reads the `local-vllm.<id>` suffix to tag the selected model.
+    _base_key = os.environ.get("VLLM_API_KEY", "local-vllm").split(".")[0]
+    env["VLLM_API_KEY"] = f"{_base_key}.{persona['id']}"
     t0 = _now()
     try:
         proc = subprocess.run(
@@ -185,6 +190,18 @@ def main():
                         if results[p["id"]]["status"] in ("thinking", "done")), 1)
         # rolling "round" = full laps completed by the whole roster
         round_no = 1 + completed_total // len(ROSTER)
+        # Merge the REAL routed model per agent, captured by the model-tap proxy.
+        # Best-effort: a missing/old sidecar must never break publishing.
+        models = {}
+        try:
+            models = json.loads(MODELS_SIDECAR.read_text())
+        except Exception:
+            models = {}
+        for p in ROSTER:
+            rec = models.get(p["id"]) if isinstance(models, dict) else None
+            if isinstance(rec, dict) and rec.get("model"):
+                results[p["id"]]["model"] = rec["model"]
+                results[p["id"]]["decision"] = rec.get("decision")
         # current headline topic = the most recently assigned one
         state = {"round": round_no, "topic": results.get("_topic", ""),
                  "model": MODEL, "updated": _now(), "cloud_calls": 0,

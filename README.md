@@ -13,6 +13,7 @@ Instead of one big model answering everything, a small CPU-side **decision model
 - **One GPU, three models.** Qwen3.5 `2B` + Qwen3.5 `9B` + Qwen3.8 `27B` share a single MI300X (measured 131 GB / 192 GB VRAM). No second card, no cloud fallback.
 - **Smart routing, not a static pin.** The **Vela 2.0 0.3B** decision model runs on the **CPU** inside the router: **zero GPU VRAM** cost. It makes a real generative judgment per request (not a keyword match) and sends each agent turn to the cheapest model that can handle it.
 - **Real multi-agent speedup.** A 12-persona OpenClaw swarm fans out across the fleet; trivial agent turns hit the 2B at ~61 tok/s instead of paying for the big model.
+- **See the routing, per agent.** Each agent tile is bordered by the color of the model that actually answered it (2B amber, 9B AMD red, 27B magenta), so the live routing is visible at a glance. The model is captured honestly from the router's `X-Vsr-Selected-Model` header via a small tap proxy (`swarm/model_tap.py`); OpenClaw masks the served model as the `vllm-sr/auto` alias, and re-probing would mis-report because its large system scaffold changes routing.
 - **The GPU stays busy.** A continuous rolling swarm plus an optional saturation load generator push GPU idle time from a measured **52% down to 0%** at ~**1000 tok/s**.
 - **Everything is real.** No simulation. If a backend is down, the dashboard says so. Every number in these docs was measured on the live MI300X.
 
@@ -51,6 +52,7 @@ The goal of vLLM is to keep the GPU busy. A naive agent swarm (fire N agents, wa
 ```
 router/     config.yaml         vLLM Semantic Router v0.3 config (3 Qwen backends, Vela 2.0 decision model, 3 decisions)
 swarm/      swarm.py            continuous rolling OpenClaw swarm orchestrator (12 personas)
+            model_tap.py        transparent tap proxy: records the REAL routed model per agent
             loadgen.py          GPU saturation load generator (toggle-able)
 dashboard/  backend.py          Flask API: live swarm state, GPU stats, fleet throughput, log stream
             index.html          booth dashboard UI

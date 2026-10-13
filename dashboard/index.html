@@ -12,6 +12,7 @@
   --heading:"Klavika","Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
   --body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --console-h:220px;
 }
 *{box-sizing:border-box;}
 
@@ -52,7 +53,12 @@
 .lane.active{opacity:1;border-color:var(--amd-red);
   background:linear-gradient(135deg,rgba(237,28,36,.18),rgba(237,28,36,.05));
   box-shadow:0 0 20px rgba(237,28,36,.25);transform:translateX(2px);}
-.lane.active .lane-tag{background:var(--amd-red);box-shadow:0 0 12px rgba(237,28,36,.6);}
+.lane.active .lane-tag{box-shadow:0 0 12px rgba(255,255,255,.35);}
+/* Static color legend on the lane tags: matches the agent border colors
+   (2B=amber, 9B=AMD red, 27B=magenta) so viewers map color -> model. */
+#lane05 .lane-tag{background:#F5A623;color:#1a1205;}
+#lane7 .lane-tag{background:#ED1C24;color:#fff;}
+#lane32 .lane-tag{background:#C0269E;color:#fff;}
 .lane.active .lane-hint{color:var(--amd-red);font-weight:700;}
 .route-meta{margin-top:11px;font-family:var(--mono);font-size:11px;color:var(--muted);
   display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
@@ -80,7 +86,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
 
 .wrap{position:relative;z-index:1;display:grid;grid-template-columns:1.5fr 1fr;gap:18px;
-  padding:16px 34px 12px;height:calc(100vh - 63px - 232px);}
+  padding:16px 34px 12px;height:calc(100vh - 63px - var(--console-h) - 12px);}
 
 .metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:2px;}
 .m{background:linear-gradient(160deg,var(--surface),var(--surface-2));border:1px solid var(--border);
@@ -91,10 +97,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
 .m .u{color:var(--muted);font-size:12px;margin-top:4px;}
 .m .v small{font-size:17px;color:var(--muted);font-weight:600;}
 
-.col-left{display:flex;flex-direction:column;gap:14px;min-height:0;}
-.col-right{display:flex;flex-direction:column;gap:14px;min-height:0;}
+.col-left{display:flex;flex-direction:column;gap:14px;min-height:0;overflow-y:auto;overflow-x:hidden;}
+.col-left::-webkit-scrollbar{width:8px;}
+.col-left::-webkit-scrollbar-thumb{background:#1f2730;border-radius:5px;}
+.col-left>.panel{flex:1 0 auto;}
+.metrics{flex:0 0 auto;}
+.col-right{display:flex;flex-direction:column;gap:14px;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:4px;}
+.col-right .panel{flex:0 0 auto;}
 .panel{background:linear-gradient(160deg,var(--surface),var(--surface-2));border:1px solid var(--border);
-  border-radius:16px;padding:15px 18px;display:flex;flex-direction:column;min-height:0;}
+  border-radius:16px;padding:15px 18px;display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+.col-right::-webkit-scrollbar{width:8px;}
+.col-right::-webkit-scrollbar-thumb{background:#1f2730;border-radius:5px;}
 .panel h3{font-family:var(--heading);font-weight:700;font-size:15px;margin:0 0 11px;letter-spacing:.3px;
   display:flex;align-items:center;gap:9px;}
 .badge{font-family:var(--mono);font-size:10px;border-radius:6px;padding:2px 7px;font-weight:600;letter-spacing:.3px;}
@@ -116,7 +129,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
 .engine-note b{color:var(--text);}
 
 /* Swarm grid */
-.swarm{flex:1;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr;gap:10px;min-height:0;overflow:hidden;}
+.swarm-wrap{flex:1;min-height:180px;position:relative;display:flex;min-height:0;}
+.swarm-wrap::after{content:"";position:absolute;left:0;right:8px;bottom:0;height:22px;pointer-events:none;
+  background:linear-gradient(to top,var(--surface) 2%,rgba(26,33,43,0) 100%);opacity:0;transition:opacity .2s;border-radius:0 0 10px 10px;}
+.swarm-wrap.more::after{opacity:.9;}
+.swarm{flex:1;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:minmax(84px,1fr);gap:10px;min-height:0;overflow-y:scroll;overflow-x:hidden;padding-right:8px;scrollbar-width:thin;scrollbar-color:var(--amd-red) rgba(255,255,255,.07);}
+.swarm::-webkit-scrollbar{width:11px;}
+.swarm::-webkit-scrollbar-track{background:rgba(255,255,255,.06);border-radius:6px;}
+.swarm::-webkit-scrollbar-thumb{background:var(--amd-red);border-radius:6px;border:2px solid #13181f;}
+.swarm::-webkit-scrollbar-thumb:hover{background:var(--amd-red-hover);}
 .agent{background:#0e131a;border:1px solid var(--border);border-radius:11px;padding:10px;
   display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;transition:border-color .3s;}
 .agent.busy{border-color:rgba(237,28,36,.55);box-shadow:0 0 0 1px rgba(237,28,36,.25) inset;}
@@ -128,6 +149,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
 .agent.busy .status{color:var(--amd-red);}
 .agent .bar{height:4px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden;}
 .agent .bar i{display:block;height:100%;background:var(--amd-red);width:0;transition:width .5s;}
+/* Model-colored agent borders: faint tint of the model that answered.
+   Three harmonious AMD-themed hues (warm triad anchored on AMD red):
+   2B=amber, 9B=AMD red, 27B=magenta. */
+.agent[data-model]{transition:border-color .5s, box-shadow .5s;}
+.agent.m-2b{border-color:rgba(245,166,35,.60);box-shadow:0 0 0 1px rgba(245,166,35,.22) inset, 0 0 10px rgba(245,166,35,.16);}
+.agent.m-9b{border-color:rgba(237,28,36,.60);box-shadow:0 0 0 1px rgba(237,28,36,.22) inset, 0 0 10px rgba(237,28,36,.16);}
+.agent.m-27b{border-color:rgba(192,38,158,.62);box-shadow:0 0 0 1px rgba(192,38,158,.24) inset, 0 0 10px rgba(192,38,158,.18);}
+.agent.busy.m-2b{border-color:rgba(245,166,35,.85);}
+.agent.busy.m-9b{border-color:rgba(237,28,36,.85);}
+.agent.busy.m-27b{border-color:rgba(192,38,158,.88);}
+.agent .mchip{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.3px;
+  padding:1px 5px;border-radius:999px;margin-left:auto;flex-shrink:0;border:1px solid transparent;}
+.agent .mchip.m-2b{color:#F5A623;background:rgba(245,166,35,.12);border-color:rgba(245,166,35,.45);}
+.agent .mchip.m-9b{color:#ff6a70;background:rgba(237,28,36,.14);border-color:rgba(237,28,36,.5);}
+.agent .mchip.m-27b{color:#e86ccb;background:rgba(192,38,158,.14);border-color:rgba(192,38,158,.5);}
+.agent .mchip.m-none{display:none;}
 .blink{animation:blink 1s steps(2) infinite;}
 @keyframes blink{50%{opacity:.2;}}
 
@@ -141,8 +178,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
 .caption{color:var(--muted);font-size:11.5px;margin-top:6px;line-height:1.5;}
 
 /* LOG CONSOLE (bottom dock) */
-.console{position:relative;z-index:2;height:220px;border-top:2px solid var(--amd-red);
+.console{position:relative;z-index:2;height:var(--console-h);min-height:90px;border-top:2px solid var(--amd-red);
   background:#05070a;display:flex;flex-direction:column;}
+.console-resize{position:absolute;top:-5px;left:0;right:0;height:11px;cursor:ns-resize;z-index:5;
+  display:flex;align-items:center;justify-content:center;}
+.console-resize::before{content:"";width:46px;height:4px;border-radius:3px;background:var(--amd-red);opacity:.55;transition:opacity .15s;}
+.console-resize:hover::before,.console.resizing .console-resize::before{opacity:1;}
+body.resizing-ns{cursor:ns-resize;user-select:none;}
 .console-bar{display:flex;align-items:center;gap:12px;padding:8px 34px;border-bottom:1px solid var(--border);
   background:rgba(0,0,0,.5);}
 .console-bar h4{font-family:var(--heading);font-weight:700;font-size:13px;margin:0;display:flex;align-items:center;gap:9px;}
@@ -185,12 +227,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
     </div>
 
     <div class="panel" style="flex:1;">
-      <h3>OpenClaw agent swarm <span class="badge live dot" id="swarmBadge">LIVE &middot; openclaw</span></h3>
+      <h3>OpenClaw agent swarm <span class="badge live dot" id="swarmBadge">LIVE &middot; openclaw</span><span class="badge" id="swarmCount" style="margin-left:auto;color:var(--muted);border:1px solid var(--border);display:none">0 agents &middot; scroll</span></h3>
       <div class="qbanner" id="qbanner">
         <div class="qlabel"><span id="qround">round</span> &middot; question to every agent</div>
         <div class="qtext" id="topic">waiting for the next round&hellip;</div>
       </div>
-      <div class="swarm" id="swarm"></div>
+      <div class="swarm-wrap" id="swarmWrap"><div class="swarm" id="swarm"></div></div>
     </div>
   </div>
 
@@ -201,7 +243,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
       <div class="route-flow">
         <div class="route-stage" id="rsClassify">
           <div class="rs-ico">&#9881;</div>
-          <div class="rs-txt"><b>Vela 2.0 decides</b><small id="rsDecision">&mdash;</small></div>
+          <div class="rs-txt"><b>Classify</b><small id="rsDecision">&mdash;</small></div>
         </div>
         <div class="route-arrow">&#8594;</div>
         <div class="route-lanes">
@@ -210,7 +252,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
           <div class="lane" id="lane32"><span class="lane-tag">27B</span><span class="lane-nm">Qwen3.8-27B</span><span class="lane-hint">hard reasoning</span></div>
         </div>
       </div>
-      <div class="route-meta"><span id="routeMeta">Vela 2.0 0.3B deciding on the CPU &middot; 0 GPU VRAM</span></div>
+      <div class="route-meta"><span id="routeMeta">routing on the CPU &middot; 0 GPU VRAM</span></div>
     </div>
 
     <div class="panel">
@@ -241,7 +283,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
 </div>
 
 <!-- LIVE vLLM LOG CONSOLE -->
-<div class="console">
+<div class="console" id="console">
+  <div class="console-resize" id="consoleResize" title="Drag to resize the log height (double-click to reset)"></div>
   <div class="console-bar">
     <h4><span class="badge live dot">LIVE</span> vLLM inference log</h4>
     <span class="cmd">$ docker logs -f vllm</span>
@@ -259,14 +302,52 @@ const swarm=document.getElementById('swarm');
 const AV={scout:"SC",analyst:"AN",critic:"CR",poet:"PO",translator:"TR",qa:"QA",coder:"CO",
 summarizer:"SU",researcher:"RE",strategist:"ST",debater:"DE",visionary:"VI"};
 let built=false;
+// Map a served model name to its tier CSS suffix for the colored border.
+function tierClass(model){
+  if(!model) return null;
+  const m=(''+model).toLowerCase();
+  if(m.includes('27b')||m.includes('32b')) return '27b';   // hard / reasoning (magenta)
+  if(m.includes('9b')||m.includes('7b'))   return '9b';    // default (AMD red)
+  if(m.includes('2b')||m.includes('0.5b')) return '2b';    // trivial (amber)
+  return null;
+}
+function tierLabel(t){return t==='27b'?'27B':t==='9b'?'9B':t==='2b'?'2B':'';}
+function paintAgentModel(el,a){
+  if(!el) return;
+  const t=tierClass(a.model);
+  el.classList.remove('m-2b','m-9b','m-27b');
+  if(t){ el.classList.add('m-'+t); el.setAttribute('data-model',a.model); }
+  const chip=document.getElementById('mc_'+a.id);
+  if(chip){
+    chip.classList.remove('m-2b','m-9b','m-27b','m-none');
+    if(t){ chip.classList.add('m-'+t); chip.textContent=tierLabel(t); chip.title='answered by '+a.model; }
+    else { chip.classList.add('m-none'); chip.textContent=''; }
+  }
+}
 function buildTiles(agents){
   swarm.innerHTML=agents.map(a=>`<div class="agent" id="ag_${a.id}">
     <div class="top"><div class="av">${AV[a.id]||a.name.slice(0,2).toUpperCase()}</div>
-      <div><div class="nm">${a.name}</div><div class="role">${a.role}</div></div></div>
+      <div><div class="nm">${a.name}</div><div class="role">${a.role}</div></div>
+      <span class="mchip m-none" id="mc_${a.id}"></span></div>
     <div class="out" style="flex:1;font-size:10.5px;color:#c6d2de;line-height:1.35;overflow:hidden;margin:2px 0;"></div>
     <div class="status">idle</div></div>`).join('');
   built=true;
+  updateSwarmScrollHint();
 }
+function updateSwarmScrollHint(){
+  const sw=document.getElementById('swarm'), wrap=document.getElementById('swarmWrap'), cnt=document.getElementById('swarmCount');
+  if(!sw||!wrap) return;
+  const n=sw.querySelectorAll('.agent').length;
+  const overflow = sw.scrollHeight > sw.clientHeight + 2;
+  const atBottom = sw.scrollTop + sw.clientHeight >= sw.scrollHeight - 4;
+  wrap.classList.toggle('more', overflow && !atBottom);
+  if(cnt){ cnt.style.display = n ? '' : 'none'; cnt.textContent = n + ' agents' + (overflow ? ' \u00b7 scroll \u2193' : ''); }
+}
+window.addEventListener('resize', updateSwarmScrollHint);
+document.addEventListener('DOMContentLoaded', ()=>{
+  const sw=document.getElementById('swarm');
+  if(sw) sw.addEventListener('scroll', updateSwarmScrollHint, {passive:true});
+});
 async function pollSwarm(){
   try{
     const r=await fetch('/api/swarm');const j=await r.json();
@@ -283,6 +364,7 @@ async function pollSwarm(){
     let busy=0, aggTok=0;
     j.agents.forEach(a=>{
       const el=document.getElementById('ag_'+a.id);if(!el)return;
+      paintAgentModel(el,a);
       const st=el.querySelector('.status');const out=el.querySelector('.out');
       if(a.status==='thinking'){el.classList.add('busy');busy++;
         st.innerHTML='thinking <span class="blink">&#9611;</span>';}
@@ -445,6 +527,31 @@ function connectLogs(){
   es.onerror=()=>{conn.className='conn down';conn.textContent='reconnecting\u2026';es.close();setTimeout(connectLogs,3000);};
 }
 connectLogs();
+
+/* ---------- Resizable vLLM log console (drag the top handle) ---------- */
+(function(){
+  const root=document.documentElement, con=document.getElementById('console'), grip=document.getElementById('consoleResize');
+  if(!con||!grip) return;
+  const KEY='booth.consoleH', DEF=220, MIN=90;
+  const maxH=()=>Math.max(MIN, Math.round(window.innerHeight*0.75));
+  const clamp=h=>Math.min(maxH(), Math.max(MIN, h));
+  function apply(h){ root.style.setProperty('--console-h', clamp(h)+'px'); }
+  const saved=parseInt(localStorage.getItem(KEY),10);
+  if(!isNaN(saved)) apply(saved);
+  let dragging=false, startY=0, startH=0;
+  function onMove(e){ if(!dragging) return; const y=(e.touches?e.touches[0].clientY:e.clientY); apply(startH + (startY - y)); e.preventDefault(); }
+  function onUp(){ if(!dragging) return; dragging=false; con.classList.remove('resizing'); document.body.classList.remove('resizing-ns');
+    const h=parseInt(getComputedStyle(root).getPropertyValue('--console-h'),10); if(!isNaN(h)) localStorage.setItem(KEY,h);
+    window.removeEventListener('mousemove',onMove); window.removeEventListener('mouseup',onUp);
+    window.removeEventListener('touchmove',onMove); window.removeEventListener('touchend',onUp); }
+  function onDown(e){ dragging=true; con.classList.add('resizing'); document.body.classList.add('resizing-ns');
+    startY=(e.touches?e.touches[0].clientY:e.clientY); startH=con.getBoundingClientRect().height;
+    window.addEventListener('mousemove',onMove); window.addEventListener('mouseup',onUp);
+    window.addEventListener('touchmove',onMove,{passive:false}); window.addEventListener('touchend',onUp); e.preventDefault(); }
+  grip.addEventListener('mousedown',onDown); grip.addEventListener('touchstart',onDown,{passive:false});
+  grip.addEventListener('dblclick',()=>{ apply(DEF); localStorage.setItem(KEY,DEF); });
+  window.addEventListener('resize',()=>{ const h=parseInt(getComputedStyle(root).getPropertyValue('--console-h'),10); if(!isNaN(h)) apply(h); });
+})();
 </script>
 </body>
 </html>

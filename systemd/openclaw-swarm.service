@@ -1,14 +1,12 @@
 [Unit]
-Description=OpenClaw booth dashboard API + UI (:7000)
+Description=OpenClaw Sovereign Swarm booth demo (:7000)
 After=network.target
 
 [Service]
 WorkingDirectory=/opt/openclaw-swarm
 Environment=PORT=7000
-# Route the dashboard's live model list through the Semantic Router.
-Environment=VLLM_URL=http://127.0.0.1:8899
-# Fleet backends whose Prometheus /metrics are summed for live throughput.
-Environment=VLLM_METRICS_URLS=http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003
+Environment=VLLM_URL=http://127.0.0.1:8000
+Environment=VLLM_CONTAINER=vllm
 ExecStart=/opt/openclaw-swarm/.venv/bin/python backend.py
 Restart=always
 
