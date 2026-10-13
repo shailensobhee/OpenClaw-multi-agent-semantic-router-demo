@@ -1,89 +1,96 @@
+# vLLM Semantic Router v0.3 config for the ai-Pulse 2026 booth demo.
+# Decision model: Vela 2.0 0.3B (vllm-sr/Vela-2.0-0.3B) runs on the CPU and
+# answers one choice question per request (hard | standard | trivial); the
+# router maps that answer to a Qwen backend. This is the exact config deployed
+# live on the MI300X booth host.
 version: v0.3
-
 listeners:
-  - name: "http-8899"
-    address: "0.0.0.0"
-    port: 8899
-    timeout: "300s"
-
+- name: http-8899
+  address: 0.0.0.0
+  port: 8899
+  timeout: 300s
 providers:
   defaults:
-    model: "Qwen3.5-9B"
+    model: Qwen3.5-9B
   models:
-    - name: "Qwen3.5-2B"
-      backend_refs:
-        - name: "b05"
-          provider: vllm
-          endpoint: "qwen-05b:8001"
-          protocol: "http"
-          weight: 100
-    - name: "Qwen3.5-9B"
-      backend_refs:
-        - name: "b7"
-          provider: vllm
-          endpoint: "qwen-7b:8002"
-          protocol: "http"
-          weight: 100
-    - name: "Qwen3.8-27B"
-      backend_refs:
-        - name: "b32"
-          provider: vllm
-          endpoint: "qwen-32b:8003"
-          protocol: "http"
-          weight: 100
-
+  - name: Qwen3.5-2B
+    backend_refs:
+    - name: b05
+      provider: vllm
+      endpoint: qwen-05b:8001
+      protocol: http
+      weight: 100
+  - name: Qwen3.5-9B
+    backend_refs:
+    - name: b7
+      provider: vllm
+      endpoint: qwen-7b:8002
+      protocol: http
+      weight: 100
+  - name: Qwen3.8-27B
+    backend_refs:
+    - name: b32
+      provider: vllm
+      endpoint: qwen-32b:8003
+      protocol: http
+      weight: 100
 routing:
   strategy: priority
-
-  modelCards:
-    - name: "Qwen3.5-2B"
-    - name: "Qwen3.5-9B"
-    - name: "Qwen3.8-27B"
-
   signals:
-    keywords:
-      - name: "hard_reasoning"
-        operator: "OR"
-        method: "regex"
-        case_sensitive: false
-        keywords: ["\\bprove\\b", "\\bproof\\b", "\\btheorem\\b", "\\bderive\\b", "step by step", "\\breasoning\\b", "\\banalyze\\b", "\\balgorithm\\b", "\\boptimize\\b", "\\bdebug\\b", "\\barchitecture\\b", "trade-?off", "explain why", "design an", "\\brefactor\\b"]
-      - name: "trivial"
-        operator: "OR"
-        method: "regex"
-        case_sensitive: false
-        keywords: ["\\bhello\\b", "\\bhi there\\b", "\\bthanks\\b", "thank you", "good morning", "how are you", "say hello", "\\bgreeting", "capitalize", "echo back", "repeat after"]
-
+    decision:
+    - name: tier
+      description: Vela 2.0 0.3B classifies the request's reasoning complexity.
+      question:
+        type: choice
+        instructions: >-
+          Classify the user's request by the reasoning effort a good answer needs.
+          Answer 'hard' for multi-step reasoning, proofs, algorithm or system
+          design, debugging, or deep analysis. Answer 'trivial' for greetings,
+          thanks, acknowledgements, echoing, or one-line factual lookups. Answer
+          'standard' for everything in between.
+        choices:
+        - key: hard
+          description: Multi-step reasoning, proof, design, debugging, deep analysis.
+        - key: standard
+          description: An ordinary question needing a normal, direct answer.
+        - key: trivial
+          description: Greeting, thanks, echo, or a trivial one-line lookup.
   decisions:
-    - name: "hard-to-32b"
-      description: "Reasoning/coding/analysis -> 32B."
-      priority: 10
-      rules:
-        operator: "OR"
-        conditions:
-          - type: "keyword"
-            name: "hard_reasoning"
-      modelRefs:
-        - model: "Qwen3.8-27B"
-          use_reasoning: false
-
-    - name: "trivial-to-0.5b"
-      description: "Greetings/formatting/trivial -> 0.5B (fastest)."
-      priority: 20
-      rules:
-        operator: "OR"
-        conditions:
-          - type: "keyword"
-            name: "trivial"
-      modelRefs:
-        - model: "Qwen3.5-2B"
-          use_reasoning: false
-
-    - name: "default-route"
-      description: "Everything else -> standard 7B."
-      priority: 100
-      rules:
-        operator: "AND"
-        conditions: []
-      modelRefs:
-        - model: "Qwen3.5-9B"
-          use_reasoning: false
+  - name: hard-to-32b
+    description: Vela 2.0 says hard -> Qwen3.8-27B.
+    priority: 10
+    rules:
+      operator: OR
+      conditions:
+      - type: decision
+        name: tier
+        label: hard
+    modelRefs:
+    - model: Qwen3.8-27B
+      use_reasoning: false
+  - name: trivial-to-2b
+    description: Vela 2.0 says trivial -> Qwen3.5-2B (fastest).
+    priority: 20
+    rules:
+      operator: OR
+      conditions:
+      - type: decision
+        name: tier
+        label: trivial
+    modelRefs:
+    - model: Qwen3.5-2B
+      use_reasoning: false
+  - name: default-route
+    description: Everything else (incl. standard) -> Qwen3.5-9B.
+    priority: 100
+    rules:
+      operator: AND
+      conditions: []
+    modelRefs:
+    - model: Qwen3.5-9B
+      use_reasoning: false
+global:
+  model_catalog:
+    system:
+      decision_model:
+        deployment: primary

@@ -4,14 +4,14 @@
 
 A live booth demo (AMD ai-Pulse 2026, Paris) showing that **[OpenClaw](https://openclaw.ai) multi-agent workflows run great on local models**, served by **[vLLM](https://github.com/vllm-project/vllm)** on a single **AMD Instinct&trade; MI300X** with **ROCm&trade;**, and made efficient by the **[vLLM Semantic Router](https://github.com/vllm-project/semantic-router)**.
 
-Instead of one big model answering everything, a small CPU-side **decision tier** classifies each request and routes it to the **right-sized** model: trivial turns go to a 2B, standard turns to a 9B, and genuine reasoning to a 27B. All three models are **co-resident on one GPU**, so easy requests run ~3x faster and the GPU stays fed.
+Instead of one big model answering everything, a small CPU-side **decision model** (**Vela 2.0 0.3B**) reads each request and routes it to the **right-sized** model: trivial turns go to a 2B, standard turns to a 9B, and genuine reasoning to a 27B. All three models are **co-resident on one GPU**, so easy requests run ~3x faster and the GPU stays fed.
 
 ![Architecture](docs/diagrams/diagram1-architecture.png)
 
 ## Why this is interesting
 
 - **One GPU, three models.** Qwen3.5 `2B` + Qwen3.5 `9B` + Qwen3.8 `27B` share a single MI300X (measured 131 GB / 192 GB VRAM). No second card, no cloud fallback.
-- **Smart routing, not a static pin.** A keyword/regex decision tier (ModernBERT classifier available too) runs on the **CPU** inside the router: **zero GPU VRAM** cost. It sends each agent request to the cheapest model that can handle it.
+- **Smart routing, not a static pin.** The **Vela 2.0 0.3B** decision model runs on the **CPU** inside the router: **zero GPU VRAM** cost. It makes a real generative judgment per request (not a keyword match) and sends each agent turn to the cheapest model that can handle it.
 - **Real multi-agent speedup.** A 12-persona OpenClaw swarm fans out across the fleet; trivial agent turns hit the 2B at ~61 tok/s instead of paying for the big model.
 - **The GPU stays busy.** A continuous rolling swarm plus an optional saturation load generator push GPU idle time from a measured **52% down to 0%** at ~**1000 tok/s**.
 - **Everything is real.** No simulation. If a backend is down, the dashboard says so. Every number in these docs was measured on the live MI300X.
@@ -20,20 +20,20 @@ Instead of one big model answering everything, a small CPU-side **decision tier*
 
 ![Routing](docs/diagrams/diagram2-routing.png)
 
-The router sits in front of the vLLM backends as an Envoy `ext-proc` filter on an **OpenAI-compatible** endpoint (`:8899`). For every request:
+The router sits in front of the vLLM backends on an **OpenAI-compatible** endpoint (`:8899`), with the **Vela 2.0 0.3B** decision model as its brain. For every request:
 
-1. **Classify (CPU).** Keyword/regex signals match the prompt text. `hard_reasoning` fires on words like `prove`, `theorem`, `derive`, `analyze`, `algorithm`, `optimize`, `refactor`. `trivial` fires on `hello`, `thanks`, `capitalize`, etc.
-2. **Decide (priority order, lowest number wins).**
+1. **Decide (CPU).** The router asks Vela 2.0 one `choice` question about the request: is the reasoning effort needed **hard**, **standard**, or **trivial**? This is a real generative judgment by a 0.3B model running on the CPU, so it costs **zero GPU VRAM**. Vela 2.0 reads intent, not surface keywords, so a reasoning prompt with no trigger words still routes correctly.
+2. **Map the answer to a backend (priority order, lowest number wins).**
 
-   | Priority | Condition | Routed to |
+   | Priority | Vela 2.0 answer | Routed to |
    |---:|---|---|
-   | `10` | `hard_reasoning` matched | **Qwen3.8-27B** (`:8003`) |
-   | `20` | `trivial` matched | **Qwen3.5-2B** (`:8001`) |
-   | `100` | default (catch-all) | **Qwen3.5-9B** (`:8002`) |
+   | `10` | `hard` | **Qwen3.8-27B** (`:8003`) |
+   | `20` | `trivial` | **Qwen3.5-2B** (`:8001`) |
+   | `100` | anything else (incl. `standard`) | **Qwen3.5-9B** (`:8002`) |
 
-3. **Forward.** The router rewrites the request's `model` field to the chosen backend's `served-model-name` and proxies it. The response echoes which model actually served it, and the router logs a `routing_decision` line for every request, so routing is verifiable, not assumed.
+3. **Forward.** The router rewrites the request's `model` field to the chosen backend's `served-model-name` and proxies it. The response echoes which model actually served it, and the router logs a `routing_decision` line (plus a `decision_signal_ms` timing for the Vela inference) for every request, so routing is verifiable, not assumed.
 
-> The full router config is in [`router/config.yaml`](router/config.yaml). The key constraint: **config model names must equal each backend's `--served-model-name`**, and keyword `method` must be one of `regex` / `bm25` / `ngram` (`substring` is rejected at startup). Use `regex` with word boundaries for deterministic, booth-safe routing.
+> The full router config is in [`router/config.yaml`](router/config.yaml). The decision model is bound at `global.model_catalog.system.decision_model` (resolves to `vllm-sr/Vela-2.0-0.3B`), and the `tier` signal is a `decision` signal with a `choice` question. Because the signal omits an explicit `deployment`, the question is answered by that system decision model.
 
 ## Keeping the GPU fully fed
 
@@ -49,7 +49,7 @@ The goal of vLLM is to keep the GPU busy. A naive agent swarm (fire N agents, wa
 ## Repository layout
 
 ```
-router/     config.yaml         vLLM Semantic Router v0.3 config (3 Qwen backends, 3 decisions)
+router/     config.yaml         vLLM Semantic Router v0.3 config (3 Qwen backends, Vela 2.0 decision model, 3 decisions)
 swarm/      swarm.py            continuous rolling OpenClaw swarm orchestrator (12 personas)
             loadgen.py          GPU saturation load generator (toggle-able)
 dashboard/  backend.py          Flask API: live swarm state, GPU stats, fleet throughput, log stream
@@ -78,7 +78,7 @@ sudo bash scripts/serve_vsr.sh
 curl http://localhost:8899/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"vllm-sr/auto","messages":[{"role":"user","content":"Prove there are infinitely many primes."}]}'
-#  -> routed to Qwen3.8-27B; a trivial "hello" would route to Qwen3.5-2B
+#  -> Vela 2.0 reads it as "hard" and routes to Qwen3.8-27B; a trivial "hello" routes to Qwen3.5-2B
 ```
 
 ### Run the swarm + dashboard
@@ -126,7 +126,7 @@ Point OpenClaw's provider at the router in `~/.openclaw/openclaw.json`:
 | Models co-resident on one MI300X | Qwen3.5 `2B` + Qwen3.5 `9B` + Qwen3.8 `27B` |
 | VRAM used | 131 GB / 192 GB |
 | Per-model throughput (single stream) | 2B ~61 tok/s, 9B ~23 tok/s, 27B ~20 tok/s |
-| Routing correctness | 4/4 intents routed to the right model (verified in router log) |
+| Routing correctness | hard / standard / trivial each routed to the right model by Vela 2.0 (verified in router log) |
 | GPU idle, barrier rounds | ~52% |
 | GPU idle, rolling pool | ~34% |
 | GPU idle, + load generator | ~0% at ~1000 tok/s, 25 concurrent, 0 errors |

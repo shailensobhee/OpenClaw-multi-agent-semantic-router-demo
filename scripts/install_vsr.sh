@@ -1,6 +1,6 @@
 #!/bin/bash
 # Install vLLM Semantic Router tier in front of the 3 Qwen backends.
-# Decision model = ModernBERT category classifier (CPU, zero GPU VRAM).
+# Decision model = Vela 2.0 0.3B (vllm-sr/Vela-2.0-0.3B), runs on the CPU (zero GPU VRAM).
 # Envoy OpenAI entrypoint :8899 -> router -> Qwen3.5-2B / Qwen3.5-9B / Qwen3.8-27B on host ports 8001/8002/8003.
 set -uo pipefail
 LOG=/var/log/booth-vllm-sr.log

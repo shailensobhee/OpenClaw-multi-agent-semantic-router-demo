@@ -1,6 +1,6 @@
 #!/bin/bash
 # Serve the vLLM Semantic Router stack (Envoy :8899 + router + dashboard).
-# First run pulls ~10 images + classifier models (multi-GB, multi-minute).
+# First run pulls the router image + the Vela 2.0 0.3B decision model (multi-GB, multi-minute).
 set -uo pipefail
 LOG=/var/log/booth-vsr-serve.log
 exec > >(tee -a "$LOG") 2>&1
