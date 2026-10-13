@@ -18,6 +18,7 @@ a French translation, a risk, a hashtag ...). The merge persona then summarises.
 import concurrent.futures as cf
 import json
 import os
+import random
 import re
 import subprocess
 import time
@@ -56,6 +57,22 @@ TOPICS = [
     "energy efficiency of consolidating models onto a single MI300X",
     "building sovereign AI assistants for European enterprises",
     "the role of high-bandwidth memory in agentic AI workloads",
+    "why colocating models beats spinning up a GPU per model",
+    "running an OpenClaw agent swarm entirely offline",
+    "the carbon and cost savings of right-sizing every inference",
+    "how ROCm and vLLM deliver open, portable AI serving",
+    "keeping sensitive data on-prem while still using large models",
+    "real-time agent collaboration on a single MI300X",
+    "the economics of a three-model fleet versus one giant model",
+    "GPU memory headroom for bigger batches and longer context",
+    "deploying local AI without an internet connection at the edge",
+    "routing by reasoning effort instead of a fixed model choice",
+    "what 192 GB of HBM3 unlocks for multi-model serving",
+    "trustworthy AI you fully control on your own hardware",
+    "serving a reasoning model and a chat model from one accelerator",
+    "the path from prototype to production for on-prem LLMs",
+    "why open accelerated computing matters for AI sovereignty",
+    "scaling from one booth demo to a datacenter of MI300X nodes",
 ]
 
 # persona id, display, role, task template ({topic} injected)
@@ -203,15 +220,26 @@ def main():
         return persona["task"].format(topic=topic)
     cumulative_tok = 0
     cumulative_calls = 0
-    # per-persona topic cursor so each agent rotates through topics independently
-    topic_idx = {p["id"]: i for i, p in enumerate(ROSTER)}
+    # Per-persona SHUFFLED topic playlist: each agent walks its own random
+    # permutation of all topics, so no topic repeats until every one has been
+    # seen; when the playlist is exhausted it is reshuffled for a fresh order.
+    # Each agent starts from a different random shuffle, so the wall never shows
+    # the same sequence round and round.
+    def _fresh_playlist():
+        pl = list(range(len(TOPICS)))
+        random.shuffle(pl)
+        return pl
+
+    topic_playlist = {p["id"]: _fresh_playlist() for p in ROSTER}
     completed_total = 0
     started = _now()
 
     def _topic_for(pid):
-        t = TOPICS[topic_idx[pid] % len(TOPICS)]
-        topic_idx[pid] += 1
-        return t
+        pl = topic_playlist[pid]
+        if not pl:
+            pl = _fresh_playlist()
+            topic_playlist[pid] = pl
+        return TOPICS[pl.pop()]
 
     def _publish():
         # live aggregate throughput = sum of agents currently producing
