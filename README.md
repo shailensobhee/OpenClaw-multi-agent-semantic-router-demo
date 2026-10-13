@@ -21,7 +21,7 @@ Instead of one big model answering everything, a small CPU-side **decision model
 
 ![Routing](docs/diagrams/diagram2-routing.png)
 
-The router sits in front of the vLLM backends on an **OpenAI-compatible** endpoint (`:8899`), with the **Vela 2.0 0.3B** decision model as its brain. For every request:
+The router sits in front of the vLLM backends on an **OpenAI-compatible** endpoint (`:8899`), with the **Vela 2.0 0.3B** decision model as its brain. The booth runs **vLLM Semantic Router 0.4.0** (the `vllm-sr` CLI and the `ghcr.io/vllm-project/semantic-router/vllm-sr` container), driven by the routing config in [`router/config.yaml`](router/config.yaml) (config schema `v0.3`). For every request:
 
 1. **Decide (CPU).** The router asks Vela 2.0 one `choice` question about the request: is the reasoning effort needed **hard**, **standard**, or **trivial**? This is a real generative judgment by a 0.3B model running on the CPU, so it costs **zero GPU VRAM**. Vela 2.0 reads intent, not surface keywords, so a reasoning prompt with no trigger words still routes correctly.
 2. **Map the answer to a backend (priority order, lowest number wins).**
@@ -32,7 +32,7 @@ The router sits in front of the vLLM backends on an **OpenAI-compatible** endpoi
    | `20` | `trivial` | **Qwen3.5-2B** (`:8001`) |
    | `100` | anything else (incl. `standard`) | **Qwen3.5-9B** (`:8002`) |
 
-3. **Forward.** The router rewrites the request's `model` field to the chosen backend's `served-model-name` and proxies it. The response echoes which model actually served it, and the router logs a `routing_decision` line (plus a `decision_signal_ms` timing for the Vela inference) for every request, so routing is verifiable, not assumed.
+3. **Forward.** The router rewrites the request's `model` field to the chosen backend's `served-model-name` and proxies it. The response body echoes which model actually served it, and the router adds `X-Vsr-Selected-Model` / `X-Vsr-Selected-Decision` response headers plus a `routing_decision` log line (with a `decision_signal_ms` timing for the Vela inference) for every request, so routing is verifiable, not assumed. The booth dashboard reads `X-Vsr-Selected-Model` to color each agent tile by the model that answered it.
 
 > The full router config is in [`router/config.yaml`](router/config.yaml). The decision model is bound at `global.model_catalog.system.decision_model` (resolves to `vllm-sr/Vela-2.0-0.3B`), and the `tier` signal is a `decision` signal with a `choice` question. Because the signal omits an explicit `deployment`, the question is answered by that system decision model.
 
@@ -50,7 +50,7 @@ The goal of vLLM is to keep the GPU busy. A naive agent swarm (fire N agents, wa
 ## Repository layout
 
 ```
-router/     config.yaml         vLLM Semantic Router v0.3 config (3 Qwen backends, Vela 2.0 decision model, 3 decisions)
+router/     config.yaml         vLLM Semantic Router config, schema v0.3 (3 Qwen backends, Vela 2.0 decision model, 3 decisions)
 swarm/      swarm.py            continuous rolling OpenClaw swarm orchestrator (12 personas)
             model_tap.py        transparent tap proxy: records the REAL routed model per agent
             loadgen.py          GPU saturation load generator (toggle-able)
