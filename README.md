@@ -137,8 +137,11 @@ Point OpenClaw's provider at the router in `~/.openclaw/openclaw.json`:
 
 The backends run on the **same Docker bridge** (`vllm-sr-network`) as the semantic
 router and Envoy, and the router reaches them by **container name**
-(`qwen-05b:8001`, `qwen-7b:8002`, `qwen-32b:8003`). This is deliberate and it is
-what makes the router path firewall-proof.
+(`qwen-05b:8001`, `qwen-7b:8002`, `qwen-32b:8003`). These are legacy container
+names kept stable so nothing downstream breaks; the models they serve have since
+been updated, so `qwen-05b:8001` now serves **Qwen3.5-2B**, `qwen-7b:8002` serves
+**Qwen3.5-9B**, and `qwen-32b:8003` serves **Qwen3.8-27B**. This container-name
+addressing is deliberate and it is what makes the router path firewall-proof.
 
 Why it matters: if the backends instead ran with `--network host`, every
 router-to-backend call would be a bridge-to-**host** connection (via
@@ -159,6 +162,7 @@ requests, 0 failures) and survived a router/envoy restart. Confirm the path from
 inside the router container (must be `200`):
 
 ```bash
+# qwen-05b is the legacy container name for the Qwen3.5-2B backend on :8001
 docker exec vllm-sr-router-container \
   curl -m6 -o /dev/null -w '%{http_code}\n' http://qwen-05b:8001/v1/models
 ```
