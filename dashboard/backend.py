@@ -194,9 +194,14 @@ def _rocm_smi():
     if used is None or total is None:
         return {"ok": False, "error": "amdgpu vram sysfs unreadable"}
 
+    # Report GiB (binary, / 1024^3) to match the AMD MI300X spec figure of
+    # 192 GB HBM3. The sysfs byte count is 205,822,885,888; dividing by 1e9
+    # gives a decimal 205.8 that confuses viewers, while / 1024^3 = 191.7 GiB,
+    # which rounds to the 192 on the spec sheet and the static header label.
+    GiB = 1024 ** 3
     return {"ok": True,
-            "vram_used_gb": round(used / 1e9, 1),
-            "vram_total_gb": round(total / 1e9, 1),
+            "vram_used_gb": round(used / GiB, 1),
+            "vram_total_gb": round(total / GiB, 1),
             "util_pct": int(busy) if busy is not None else 0,
             "power_w": power_w,
             "temp_c": temp_c,
