@@ -247,8 +247,8 @@ body.resizing-ns{cursor:ns-resize;user-select:none;}
   <div class="col-left">
     <div class="metrics">
       <div class="m"><div class="k">Live agents</div><div class="v" id="mAgents">16</div><div class="u">autonomous, concurrent</div></div>
-      <div class="m"><div class="k">Throughput &mdash; Opt 1 (vLLM live)</div><div class="v" id="mTok1" style="color:var(--acc)">0<small> tok/s</small></div><div class="u">server /metrics rate</div></div>
-      <div class="m"><div class="k">Throughput &mdash; Opt 1+2 (smoothed)</div><div class="v" id="mTok2" style="color:var(--ok)">0<small> tok/s</small></div><div class="u">held + EMA, no flicker</div></div>
+      <div class="m"><div class="k">Throughput (vLLM live)</div><div class="v" id="mTok1" style="color:var(--acc)">0<small> tok/s</small></div><div class="u">server /metrics rate</div></div>
+      <div class="m"><div class="k">Throughput (smoothed)</div><div class="v" id="mTok2" style="color:var(--ok)">0<small> tok/s</small></div><div class="u">rolling average of the live rate, so the number reads steadily instead of jumping each refresh</div></div>
       <div class="m"><div class="k">Cloud calls</div><div class="v" id="mCloud" style="color:var(--ok)">0</div><div class="u">nothing leaves the GPU</div></div>
       <div class="m"><div class="k">GPUs</div><div class="v">1<small> &times; MI300X</small></div><div class="u">192 GB HBM3</div></div>
     </div>
