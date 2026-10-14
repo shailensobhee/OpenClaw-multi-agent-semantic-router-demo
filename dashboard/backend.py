@@ -487,5 +487,111 @@ def logs_stream():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# =====================================================================
+# Accuracy harness endpoints (Option 1 answer accuracy + Option 3 routing
+# accuracy). The benchmark runner lives in benchmarks/accuracy.py and needs a
+# clean GPU window (the swarm + loadgen pin the MI300X at 100%, which starves
+# the backends), so the on-demand run pauses those services, measures, then
+# resumes them. Results are cached to ACCURACY_STATE and served read-only.
+# =====================================================================
+import threading
+
+ACCURACY_STATE = Path(os.environ.get("ACCURACY_STATE", str(BASE / "accuracy.json")))
+ACCURACY_SET = Path(os.environ.get("ACCURACY_SET", str(BASE.parent / "benchmarks" / "accuracy_set.json")))
+ACCURACY_SCRIPT = Path(os.environ.get("ACCURACY_SCRIPT", str(BASE.parent / "benchmarks" / "accuracy.py")))
+# services paused for a clean measurement window (space-separated, overridable)
+ACCURACY_PAUSE_UNITS = os.environ.get(
+    "ACCURACY_PAUSE_UNITS",
+    "booth-loadgen.service openclaw-swarm-runner.service openclaw-model-tap.service").split()
+
+_accuracy_lock = threading.Lock()
+_accuracy_running = {"on": False, "phase": "idle", "started": 0.0}
+
+
+def _svc(action, units):
+    """Best-effort systemctl; returns per-unit ok. Never raises."""
+    import shutil
+    if not shutil.which("systemctl"):
+        return {u: False for u in units}
+    out = {}
+    for u in units:
+        try:
+            r = subprocess.run(["systemctl", action, u], capture_output=True, text=True, timeout=30)
+            out[u] = (r.returncode == 0)
+        except Exception:
+            out[u] = False
+    return out
+
+
+def _run_accuracy_job():
+    """Pause load, run the benchmark, resume load. Runs in a worker thread."""
+    import time as _t
+    try:
+        _accuracy_running["phase"] = "pausing load"
+        _svc("stop", ACCURACY_PAUSE_UNITS)
+        # also flip the loadgen control file in case the service respawns fast
+        try:
+            LOADGEN_CONTROL.write_text("off")
+        except Exception:
+            pass
+        _t.sleep(float(os.environ.get("ACCURACY_DRAIN_S", "22")))  # let inflight requests drain
+        _accuracy_running["phase"] = "measuring"
+        env = dict(os.environ)
+        env["ACCURACY_STATE"] = str(ACCURACY_STATE)
+        env["ACCURACY_SET"] = str(ACCURACY_SET)
+        env.setdefault("ROUTER_URL", ROUTER_URL)
+        subprocess.run([os.environ.get("PYTHON", "python3"), str(ACCURACY_SCRIPT)],
+                       env=env, capture_output=True, text=True,
+                       timeout=int(os.environ.get("ACCURACY_TIMEOUT_S", "600")))
+    except Exception as e:
+        try:
+            ACCURACY_STATE.write_text(json.dumps({"ok": False, "updated": _t.time(),
+                                                  "error": f"{e.__class__.__name__}: {e}"}, indent=2))
+        except Exception:
+            pass
+    finally:
+        _accuracy_running["phase"] = "resuming load"
+        try:
+            LOADGEN_CONTROL.write_text("on")
+        except Exception:
+            pass
+        _svc("start", ACCURACY_PAUSE_UNITS)
+        _accuracy_running["on"] = False
+        _accuracy_running["phase"] = "idle"
+
+
+@app.route("/api/accuracy")
+def accuracy():
+    """Latest cached accuracy results (Option 1 answers + Option 3 routing)."""
+    running = _accuracy_running["on"]
+    try:
+        data = json.loads(ACCURACY_STATE.read_text())
+        data["age_s"] = round(time.time() - data.get("updated", 0), 1)
+    except FileNotFoundError:
+        data = {"ok": False, "error": "no run yet", "answers": {}, "routing": {}}
+    except Exception as e:
+        data = {"ok": False, "error": f"{e.__class__.__name__}"}
+    data["running"] = running
+    data["phase"] = _accuracy_running["phase"]
+    return jsonify(data)
+
+
+@app.route("/api/accuracy/run", methods=["POST", "GET"])
+def accuracy_run():
+    """Kick off an on-demand accuracy run (pauses load, measures, resumes)."""
+    with _accuracy_lock:
+        if _accuracy_running["on"]:
+            return jsonify({"ok": False, "error": "already running",
+                            "phase": _accuracy_running["phase"]}), 200
+        if not ACCURACY_SCRIPT.exists():
+            return jsonify({"ok": False, "error": f"runner missing: {ACCURACY_SCRIPT}"}), 200
+        _accuracy_running["on"] = True
+        _accuracy_running["started"] = time.time()
+        _accuracy_running["phase"] = "starting"
+        threading.Thread(target=_run_accuracy_job, daemon=True).start()
+    return jsonify({"ok": True, "started": True,
+                    "note": "pausing swarm+loadgen, measuring ~1-3 min, then resuming"})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "7000")), threaded=True)

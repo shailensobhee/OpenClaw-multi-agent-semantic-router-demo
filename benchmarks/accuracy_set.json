@@ -1,0 +1,50 @@
+{
+  "_comment": "Tiered, machine-gradable accuracy benchmark for the three co-resident Qwen backends. Each item has the difficulty TIER the router should pick, a known ANSWER, and a deterministic GRADER (no judge model). Used two ways: (1) answer accuracy per backend, (2) routing accuracy of Vela 2.0 vs these human tier labels. Every answer here is a verifiable fact or exact arithmetic.",
+  "version": 1,
+  "grader_types": {
+    "exact": "normalized (lowercase, trimmed, punctuation-stripped) last-token or full-string equality against any listed answer",
+    "contains": "any listed normalized answer appears as a substring of the normalized model output",
+    "numeric": "the last number parsed from the output equals the answer within 1e-6",
+    "fraction": "output matches the fraction OR its decimal value within 1e-3"
+  },
+  "items": [
+    {"id": "t01", "tier": "trivial", "prompt": "What is the capital of France? Answer with one word.", "answer": ["Paris"], "grader": "contains"},
+    {"id": "t02", "tier": "trivial", "prompt": "Capitalize this word and reply with only it: hello", "answer": ["Hello"], "grader": "contains"},
+    {"id": "t03", "tier": "trivial", "prompt": "What is 2 + 2? Answer with just the number.", "answer": [4], "grader": "numeric"},
+    {"id": "t04", "tier": "trivial", "prompt": "What color is a clear daytime sky? One word.", "answer": ["blue"], "grader": "contains"},
+    {"id": "t05", "tier": "trivial", "prompt": "How many days are in a week? Just the number.", "answer": [7], "grader": "numeric"},
+    {"id": "t06", "tier": "trivial", "prompt": "What is the opposite of 'up'? One word.", "answer": ["down"], "grader": "contains"},
+    {"id": "t07", "tier": "trivial", "prompt": "Spell the word 'cat' in uppercase letters.", "answer": ["CAT"], "grader": "contains"},
+    {"id": "t08", "tier": "trivial", "prompt": "What is 10 minus 3? Number only.", "answer": [7], "grader": "numeric"},
+    {"id": "t09", "tier": "trivial", "prompt": "Complete the sequence with one word: Monday, Tuesday, ___", "answer": ["Wednesday"], "grader": "contains"},
+    {"id": "t10", "tier": "trivial", "prompt": "What is the first letter of the English alphabet? One letter.", "answer": ["A"], "grader": "contains"},
+    {"id": "t11", "tier": "trivial", "prompt": "How many sides does a triangle have? Number only.", "answer": [3], "grader": "numeric"},
+    {"id": "t12", "tier": "trivial", "prompt": "What is the plural of 'dog'? One word.", "answer": ["dogs"], "grader": "contains"},
+
+    {"id": "s01", "tier": "standard", "prompt": "What does the abbreviation GPU stand for?", "answer": ["graphics processing unit"], "grader": "contains"},
+    {"id": "s02", "tier": "standard", "prompt": "Which company makes the Instinct MI300X accelerator?", "answer": ["AMD"], "grader": "contains"},
+    {"id": "s03", "tier": "standard", "prompt": "In what year did World War II end? Year only.", "answer": [1945], "grader": "numeric"},
+    {"id": "s04", "tier": "standard", "prompt": "What is the chemical formula for water?", "answer": ["H2O", "H\u2082O"], "grader": "contains"},
+    {"id": "s05", "tier": "standard", "prompt": "What is the largest planet in our solar system?", "answer": ["Jupiter"], "grader": "contains"},
+    {"id": "s06", "tier": "standard", "prompt": "Who wrote the play 'Romeo and Juliet'?", "answer": ["Shakespeare"], "grader": "contains"},
+    {"id": "s07", "tier": "standard", "prompt": "What is the square root of 144? Number only.", "answer": [12], "grader": "numeric"},
+    {"id": "s08", "tier": "standard", "prompt": "What does the abbreviation CPU stand for?", "answer": ["central processing unit"], "grader": "contains"},
+    {"id": "s09", "tier": "standard", "prompt": "What is the capital of Japan?", "answer": ["Tokyo"], "grader": "contains"},
+    {"id": "s10", "tier": "standard", "prompt": "How many continents are there on Earth? Number only.", "answer": [7], "grader": "numeric"},
+    {"id": "s11", "tier": "standard", "prompt": "What is the boiling point of water at sea level in degrees Celsius? Number only.", "answer": [100], "grader": "numeric"},
+    {"id": "s12", "tier": "standard", "prompt": "Which programming language is the Linux kernel primarily written in? One word.", "answer": ["C"], "grader": "contains"},
+
+    {"id": "h01", "tier": "hard", "prompt": "A train travels 60 miles in 1.5 hours. What is its average speed in miles per hour? Answer with just the number.", "answer": [40], "grader": "numeric"},
+    {"id": "h02", "tier": "hard", "prompt": "A shirt costs $40 and is discounted by 25%. What is the final price in dollars? Number only.", "answer": [30], "grader": "numeric"},
+    {"id": "h03", "tier": "hard", "prompt": "A rectangle has length 8 and width 5. What is its area? Number only.", "answer": [40], "grader": "numeric"},
+    {"id": "h04", "tier": "hard", "prompt": "What is 15% of 200? Number only.", "answer": [30], "grader": "numeric"},
+    {"id": "h05", "tier": "hard", "prompt": "Sarah has 3 boxes with 12 apples each. She gives away 10 apples. How many apples remain? Number only.", "answer": [26], "grader": "numeric"},
+    {"id": "h06", "tier": "hard", "prompt": "A number doubled and then increased by 5 equals 23. What is the number? Number only.", "answer": [9], "grader": "numeric"},
+    {"id": "h07", "tier": "hard", "prompt": "If 5 machines make 5 widgets in 5 minutes, how many minutes do 100 machines take to make 100 widgets? Number only.", "answer": [5], "grader": "numeric"},
+    {"id": "h08", "tier": "hard", "prompt": "The sum of three consecutive integers is 72. What is the largest of the three? Number only.", "answer": [25], "grader": "numeric"},
+    {"id": "h09", "tier": "hard", "prompt": "A car uses 8 liters of fuel per 100 km. How many liters does it use for 250 km? Number only.", "answer": [20], "grader": "numeric"},
+    {"id": "h10", "tier": "hard", "prompt": "What is the next number in the sequence 2, 6, 12, 20, 30, __? Number only.", "answer": [42], "grader": "numeric"},
+    {"id": "h11", "tier": "hard", "prompt": "If x + y = 10 and x - y = 4, what is the value of x? Number only.", "answer": [7], "grader": "numeric"},
+    {"id": "h12", "tier": "hard", "prompt": "A bag has 4 red and 6 blue balls. What is the probability of drawing a red ball, as a fraction in lowest terms?", "answer": ["2/5", 0.4], "grader": "fraction"}
+  ]
+}

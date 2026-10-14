@@ -206,6 +206,26 @@ body.resizing-ns{cursor:ns-resize;user-select:none;}
 .logbox .l-gen{color:var(--ok);}
 .logbox::-webkit-scrollbar{width:9px;}
 .logbox::-webkit-scrollbar-thumb{background:#1f2730;border-radius:5px;}
+.acc-btn{margin-left:auto;font-family:var(--body);font-size:11px;font-weight:600;color:#fff;
+  background:var(--amd-red);border:0;border-radius:6px;padding:5px 11px;cursor:pointer;letter-spacing:.3px;}
+.acc-btn:hover{background:var(--amd-red-hover);}
+.acc-btn:disabled{opacity:.55;cursor:default;}
+.acc-sub{color:var(--muted);font-size:11.5px;line-height:1.5;margin:2px 0 10px;}
+.acc-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.acc-table th{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;
+  text-align:right;padding:4px 6px;border-bottom:1px solid var(--border);}
+.acc-table th:first-child{text-align:left;}
+.acc-table td{padding:6px;text-align:right;border-bottom:1px solid rgba(42,51,63,.5);font-family:var(--mono);}
+.acc-table td:first-child{text-align:left;font-family:var(--body);font-weight:600;}
+.acc-table tr:last-child td{border-bottom:0;}
+.acc-cell-good{color:var(--ok);}
+.acc-cell-mid{color:var(--warn);}
+.acc-cell-bad{color:var(--amd-red);}
+.acc-own{display:inline-block;font-size:9px;color:var(--muted);border:1px solid var(--border);
+  border-radius:4px;padding:0 4px;margin-left:5px;vertical-align:middle;letter-spacing:.3px;}
+.acc-route{margin-top:11px;font-size:12px;color:var(--muted);font-family:var(--mono);}
+.acc-route b{color:var(--text);}
+.acc-route small{display:block;margin-top:3px;color:var(--muted);font-size:10.5px;}
 </style>
 </head>
 <body>
@@ -258,6 +278,19 @@ body.resizing-ns{cursor:ns-resize;user-select:none;}
         </div>
       </div>
       <div class="route-meta"><span id="routeMeta">routing on the CPU &middot; 0 GPU VRAM</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>Answer accuracy &amp; routing <span class="badge live dot" id="accBadge">MEASURED</span><button id="accRun" class="acc-btn" title="Pauses the swarm + loadgen, benchmarks all three models on a labeled set, then resumes">Run benchmark</button></h3>
+      <div class="acc-sub" id="accSub">Each model answers a labeled trivial / standard / hard set. Deterministic grading, no judge model. Shows why the right-sized model matters.</div>
+      <table class="acc-table" id="accTable">
+        <thead><tr><th>Model</th><th>Trivial</th><th>Standard</th><th>Hard</th><th>Overall</th></tr></thead>
+        <tbody id="accBody">
+          <tr><td colspan="5" style="color:var(--muted)">no run yet &middot; click <b>Run benchmark</b></td></tr>
+        </tbody>
+      </table>
+      <div class="acc-route" id="accRoute">Routing accuracy (Vela 2.0 vs human difficulty labels): <b id="accRoutePct">&mdash;</b> <small id="accRouteNote"></small></div>
+      <p class="caption" id="accCaption">The small models are fast but collapse on hard reasoning; only the 27B holds 100% across every tier.</p>
     </div>
 
     <div class="panel">
@@ -513,6 +546,49 @@ async function pollThru(){
   }catch(e){}
 }
 pollThru();setInterval(pollThru,1500);
+
+/* ---------- Accuracy & routing panel (Option 1 + Option 3) ---------- */
+function accClass(p){ if(p===null||p===undefined) return ''; if(p>=90) return 'acc-cell-good'; if(p>=60) return 'acc-cell-mid'; return 'acc-cell-bad'; }
+function accCell(t){ if(!t||t.pct===null||t.pct===undefined) return '<td>&mdash;</td>'; return `<td class="${accClass(t.pct)}">${t.pct}%</td>`; }
+function renderAccuracy(j){
+  const badge=document.getElementById('accBadge'), body=document.getElementById('accBody'),
+        btn=document.getElementById('accRun'), sub=document.getElementById('accSub'),
+        rp=document.getElementById('accRoutePct'), rn=document.getElementById('accRouteNote');
+  if(j.running){
+    badge.textContent='RUNNING '+(j.phase||''); badge.classList.remove('live');
+    btn.disabled=true; btn.textContent='Running\u2026';
+    sub.textContent='Swarm + loadgen paused for a clean GPU window \u2014 measuring all three models, then resuming automatically.';
+    return;
+  }
+  btn.disabled=false; btn.textContent='Run benchmark';
+  const a=j.answers||{};
+  const order=['2B','9B','27B'];
+  if(order.some(k=>a[k])){
+    badge.textContent='MEASURED'; badge.classList.add('live');
+    body.innerHTML=order.filter(k=>a[k]).map(k=>{
+      const m=a[k], bt=m.by_tier||{};
+      const own=`<span class="acc-own">owns ${m.owns_tier}</span>`;
+      return `<tr><td>${m.model}${own}</td>${accCell(bt.trivial)}${accCell(bt.standard)}${accCell(bt.hard)}`+
+             `<td class="${accClass(m.overall_pct)}"><b>${m.overall_pct===null?'&mdash;':m.overall_pct+'%'}</b></td></tr>`;
+    }).join('');
+    const age=j.age_s!==undefined?` \u00b7 measured ${Math.round(j.age_s)}s ago`:'';
+    sub.textContent=`${j.n_items||''} labeled items \u00b7 deterministic grading, no judge model${age}.`;
+  }
+  const r=j.routing||{};
+  if(r.overall_pct!==null&&r.overall_pct!==undefined){
+    rp.textContent=r.overall_pct+'%';
+    rn.textContent=`${r.right}/${r.graded} prompts routed to the tier a human would pick. The router default-routes short prompts to 9B, so arithmetic labeled "hard" often lands on 9B \u2014 a real, honest signal, not answer quality.`;
+  }
+}
+async function pollAccuracy(){
+  try{ const r=await fetch('/api/accuracy'); renderAccuracy(await r.json()); }catch(e){}
+}
+document.getElementById('accRun').addEventListener('click', async ()=>{
+  const btn=document.getElementById('accRun'); btn.disabled=true; btn.textContent='Starting\u2026';
+  try{ await fetch('/api/accuracy/run',{method:'POST'}); }catch(e){}
+  setTimeout(pollAccuracy, 1500);
+});
+pollAccuracy(); setInterval(pollAccuracy, 3000);
 
 /* ---------- REAL: streaming vLLM logs via SSE ---------- */
 const logbox=document.getElementById('logbox');const conn=document.getElementById('conn');
