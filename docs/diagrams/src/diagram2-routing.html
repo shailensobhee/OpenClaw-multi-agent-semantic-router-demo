@@ -36,7 +36,6 @@ h1{font-family:'Klavika Cond',sans-serif;font-weight:700;color:#fff;font-size:30
   <text x="190" y="52" text-anchor="middle" fill="#ED1C24" font-size="15" font-weight="700" font-family="Klavika Cond" letter-spacing="1.5">INCOMING PROMPT</text>
   <text x="565" y="52" text-anchor="middle" fill="#ED1C24" font-size="15" font-weight="700" font-family="Klavika Cond" letter-spacing="1.5">DECIDE &middot; CPU</text>
   <text x="940" y="52" text-anchor="middle" fill="#ED1C24" font-size="15" font-weight="700" font-family="Klavika Cond" letter-spacing="1.5">MAP TO DECISION</text>
-  <text x="1300" y="52" text-anchor="middle" fill="#ED1C24" font-size="15" font-weight="700" font-family="Klavika Cond" letter-spacing="1.5">MODEL FLEET &middot; ONE GPU</text>
 
   <!-- connectors -->
   <line x1="320" y1="150" x2="410" y2="150" stroke="#9a9a9a" stroke-width="1.5" marker-end="url(#aw)"/>
@@ -75,7 +74,7 @@ h1{font-family:'Klavika Cond',sans-serif;font-weight:700;color:#fff;font-size:30
 
   <!-- MI300X boundary -->
   <rect x="1138" y="66" width="300" height="360" rx="8" fill="none" stroke="#ED1C24" stroke-width="1.1" stroke-dasharray="7,5"/>
-  <text x="1288" y="56" text-anchor="middle" fill="#ED1C24" font-size="13.5" font-weight="700" font-family="Klavika Cond" letter-spacing="1">SINGLE AMD INSTINCT MI300X &middot; ROCm</text>
+  <text x="1288" y="52" text-anchor="middle" fill="#ED1C24" font-size="15" font-weight="700" font-family="Klavika Cond" letter-spacing="1.2">MODEL FLEET &middot; SINGLE AMD INSTINCT MI300X</text>
 
   <!-- 27B hard -->
   <rect x="1160" y="80" width="258" height="92" rx="5" fill="#1a1414" stroke="#ED1C24" stroke-width="1.4"/>
@@ -105,8 +104,8 @@ h1{font-family:'Klavika Cond',sans-serif;font-weight:700;color:#fff;font-size:30
   <text x="86" y="340" fill="#c8c8c8" font-size="14.5">The router rewrites the model field to the chosen backend's served-model-name and proxies it; the reply echoes who served it.</text>
   <text x="86" y="366" fill="#c8c8c8" font-size="14.5">Every response carries X-Vsr-Selected-Model / X-Vsr-Selected-Decision headers + a routing_decision log line (decision_signal_ms).</text>
   <text x="86" y="392" fill="#8a8a8a" font-size="13">vLLM Semantic Router 0.5.0 &middot; config schema v0.3 &middot; easy requests run ~3x faster, the GPU stays fed.</text>
-  <text x="86" y="420" fill="#6f6f6f" font-size="12.5">Verified live on DO3 &middot; booth dashboard colors each agent tile by the model that actually answered it.</text>
+  <text x="86" y="420" fill="#6f6f6f" font-size="12.5">Live demo dashboard colours each agent tile by the model that actually answered it.</text>
 </svg></div>
-  <div class="ft">AMD Instinct MI300X &middot; ROCm &middot; vLLM Semantic Router 0.5.0 with Vela 2.0 + Decision 3.0 &middot; verified live on DO3</div>
+  <div class="ft">AMD Instinct MI300X &middot; ROCm &middot; vLLM Semantic Router 0.5.0 with Vela 2.0 + Decision 3.0</div>
 </div>
 </body></html>
