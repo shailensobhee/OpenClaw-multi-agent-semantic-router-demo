@@ -21,7 +21,7 @@ Instead of one big model answering everything, a small CPU-side **decision model
 
 ![Routing](docs/diagrams/diagram2-routing.png)
 
-The router sits in front of the vLLM backends on an **OpenAI-compatible** endpoint (`:8899`), with the **Vela 2.0 0.3B** decision model as its brain. The booth runs **vLLM Semantic Router 0.4.0** (the `vllm-sr` CLI and the `ghcr.io/vllm-project/semantic-router/vllm-sr` container), driven by the routing config in [`router/config.yaml`](router/config.yaml) (config schema `v0.3`). For every request:
+The router sits in front of the vLLM backends on an **OpenAI-compatible** endpoint (`:8899`), with the **Vela 2.0 0.3B** decision model as its brain. The booth runs **vLLM Semantic Router 0.5.0** (the `vllm-sr` CLI dev-channel build `0.5.0.dev20261012104128`, which deploys the `ghcr.io/vllm-project/semantic-router/vllm-sr:latest` container), driven by the routing config in [`router/config.yaml`](router/config.yaml) (config schema `v0.3`). For every request:
 
 1. **Decide (CPU).** The router asks Vela 2.0 one `choice` question about the request: is the reasoning effort needed **hard**, **standard**, or **trivial**? This is a real generative judgment by a 0.3B model running on the CPU, so it costs **zero GPU VRAM**. Vela 2.0 reads intent, not surface keywords, so a reasoning prompt with no trigger words still routes correctly.
 2. **Map the answer to a backend (priority order, lowest number wins).**
