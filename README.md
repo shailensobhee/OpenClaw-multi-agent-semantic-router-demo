@@ -40,7 +40,7 @@ The router sits in front of the vLLM backends on an **OpenAI-compatible** endpoi
 
 ![GPU efficiency](docs/diagrams/diagram3-gpu-efficiency.png)
 
-The goal of vLLM is to keep the GPU busy. A naive agent swarm (fire N agents, wait for the slowest, sleep, repeat) leaves the GPU **idle ~52% of the time** (measured). Two fixes, both in this repo:
+The goal of vLLM is to keep the GPU busy. A naive agent swarm (fire N agents, wait for the slowest, sleep, repeat) leaves the GPU **idle ~52% of the time** (measured). Two clever techniques we implemented, both in this repo:
 
 - **Continuous rolling pool** ([`swarm/swarm.py`](swarm/swarm.py)): the moment any agent finishes, it is immediately resubmitted on the next topic. No barrier, no sleep. Idle **52% -> 34%**.
 - **Saturation load generator** ([`swarm/loadgen.py`](swarm/loadgen.py)): a separate process that keeps a fixed number of completions **always in flight** via direct HTTP to the router, bypassing agent overhead. Idle **-> 0%**, ~**1000 tok/s**, toggle-able on/off at the booth without a restart.
