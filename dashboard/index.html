@@ -55,10 +55,10 @@
   box-shadow:0 0 20px rgba(237,28,36,.25);transform:translateX(2px);}
 .lane.active .lane-tag{box-shadow:0 0 12px rgba(255,255,255,.35);}
 /* Static color legend on the lane tags: matches the agent border colors
-   (2B=amber, 9B=AMD red, 27B=magenta) so viewers map color -> model. */
-#lane05 .lane-tag{background:#F5A623;color:#1a1205;}
+   (2B=teal, 9B=AMD red, 27B=orange) so viewers map color -> model. */
+#lane05 .lane-tag{background:#007C97;color:#fff;}
 #lane7 .lane-tag{background:#ED1C24;color:#fff;}
-#lane32 .lane-tag{background:#C0269E;color:#fff;}
+#lane32 .lane-tag{background:#F26522;color:#1a0c03;}
 .lane.active .lane-hint{color:var(--amd-red);font-weight:700;}
 .route-meta{margin-top:11px;font-family:var(--mono);font-size:11px;color:var(--muted);
   display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
@@ -153,17 +153,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
    Three harmonious AMD-themed hues (warm triad anchored on AMD red):
    2B=amber, 9B=AMD red, 27B=magenta. */
 .agent[data-model]{transition:border-color .5s, box-shadow .5s;}
-.agent.m-2b{border-color:rgba(245,166,35,.60);box-shadow:0 0 0 1px rgba(245,166,35,.22) inset, 0 0 10px rgba(245,166,35,.16);}
+.agent.m-2b{border-color:rgba(0,124,151,.60);box-shadow:0 0 0 1px rgba(0,124,151,.22) inset, 0 0 10px rgba(0,124,151,.16);}
 .agent.m-9b{border-color:rgba(237,28,36,.60);box-shadow:0 0 0 1px rgba(237,28,36,.22) inset, 0 0 10px rgba(237,28,36,.16);}
-.agent.m-27b{border-color:rgba(192,38,158,.62);box-shadow:0 0 0 1px rgba(192,38,158,.24) inset, 0 0 10px rgba(192,38,158,.18);}
-.agent.busy.m-2b{border-color:rgba(245,166,35,.85);}
+.agent.m-27b{border-color:rgba(242,101,34,.62);box-shadow:0 0 0 1px rgba(242,101,34,.24) inset, 0 0 10px rgba(242,101,34,.18);}
+.agent.busy.m-2b{border-color:rgba(0,124,151,.85);}
 .agent.busy.m-9b{border-color:rgba(237,28,36,.85);}
-.agent.busy.m-27b{border-color:rgba(192,38,158,.88);}
+.agent.busy.m-27b{border-color:rgba(242,101,34,.88);}
 .agent .mchip{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.3px;
   padding:1px 5px;border-radius:999px;margin-left:auto;flex-shrink:0;border:1px solid transparent;}
-.agent .mchip.m-2b{color:#F5A623;background:rgba(245,166,35,.12);border-color:rgba(245,166,35,.45);}
+.agent .mchip.m-2b{color:#2db8d6;background:rgba(0,124,151,.14);border-color:rgba(0,124,151,.5);}
 .agent .mchip.m-9b{color:#ff6a70;background:rgba(237,28,36,.14);border-color:rgba(237,28,36,.5);}
-.agent .mchip.m-27b{color:#e86ccb;background:rgba(192,38,158,.14);border-color:rgba(192,38,158,.5);}
+.agent .mchip.m-27b{color:#ff8a52;background:rgba(242,101,34,.14);border-color:rgba(242,101,34,.5);}
 .agent .mchip.m-none{display:none;}
 .agent .aq{font-family:var(--mono);font-size:9px;line-height:1.3;color:#aeb9c6;
   margin:4px 0 2px;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,.04);
