@@ -179,11 +179,16 @@ only reports "router down" after several consecutive missed polls (soft
 "reconnecting" state in between) and recovers on the first success, so a momentary
 poll race under load never flashes a false outage.
 
-## Credits
+## Toolbox to build this demo
 
 - [OpenClaw](https://openclaw.ai) multi-agent runtime
-- [vLLM](https://github.com/vllm-project/vllm) and the [vLLM Semantic Router](https://github.com/vllm-project/semantic-router)
+- [vLLM](https://github.com/vllm-project/vllm) and the [vLLM Semantic Router](https://github.com/vllm-project/semantic-router) (ships the Envoy OpenAI entrypoint on `:8899` and a Redis decision cache)
 - [Qwen3](https://github.com/QwenLM/Qwen3) models (Qwen3.5 2B/9B, Qwen3.8 27B)
-- AMD Instinct&trade; MI300X + ROCm&trade;
+- [Docker](https://www.docker.com) (all backends, the router, and Redis run as containers on one shared bridge)
+- [Redis](https://redis.io) (`redis:7-alpine`, caches the router's routing decisions)
+- [Envoy](https://www.envoyproxy.io) (the OpenAI-compatible front door on `:8899`, bundled with the router)
+- [Flask](https://flask.palletsprojects.com) (the live booth dashboard API)
+- [Python 3](https://www.python.org) (swarm orchestrator, load generator, dashboard)
+- AMD Instinct&trade; MI300X + ROCm&trade; (`rocm/vllm` serving image, `rocm-smi` for live GPU telemetry)
 
 I built this demo for the ai-Pulse 2026 event in Paris that AMD is sponsoring.
