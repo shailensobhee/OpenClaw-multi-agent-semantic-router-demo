@@ -691,17 +691,49 @@ def _svc(action, units):
     return out
 
 
+# --- ref-counted load coordinator -------------------------------------------
+# Both the accuracy run and the interactive "Try it live" mode need a clean GPU
+# window (swarm + loadgen stopped). Ref-count holders so two features can pause
+# the load at once and the swarm only RESUMES when the LAST holder releases it,
+# never mid-use. Both call these instead of _svc directly.
+_load_lock = threading.Lock()
+_load_holders = set()
+
+
+def _load_pause(holder):
+    """Register a holder; stop load units on the first holder. Idempotent."""
+    with _load_lock:
+        first = not _load_holders
+        _load_holders.add(holder)
+    if first:
+        _svc("stop", ACCURACY_PAUSE_UNITS)
+        try:
+            LOADGEN_CONTROL.write_text("off")
+        except Exception:
+            pass
+    return first
+
+
+def _load_resume(holder):
+    """Release a holder; resume load units only when NO holders remain."""
+    with _load_lock:
+        _load_holders.discard(holder)
+        empty = not _load_holders
+    if empty:
+        try:
+            LOADGEN_CONTROL.write_text("on")
+        except Exception:
+            pass
+        _svc("start", ACCURACY_PAUSE_UNITS)
+    return empty
+
+
 def _run_accuracy_job():
     """Pause load, run the benchmark, resume load. Runs in a worker thread."""
     import time as _t
     try:
         _accuracy_running["phase"] = "pausing load"
-        _svc("stop", ACCURACY_PAUSE_UNITS)
-        # also flip the loadgen control file in case the service respawns fast
-        try:
-            LOADGEN_CONTROL.write_text("off")
-        except Exception:
-            pass
+        _load_pause("accuracy")
         _t.sleep(float(os.environ.get("ACCURACY_DRAIN_S", "22")))  # let inflight requests drain
         _accuracy_running["phase"] = "measuring"
         env = dict(os.environ)
@@ -719,11 +751,7 @@ def _run_accuracy_job():
             pass
     finally:
         _accuracy_running["phase"] = "resuming load"
-        try:
-            LOADGEN_CONTROL.write_text("on")
-        except Exception:
-            pass
-        _svc("start", ACCURACY_PAUSE_UNITS)
+        _load_resume("accuracy")
         _accuracy_running["on"] = False
         _accuracy_running["phase"] = "idle"
 
@@ -759,6 +787,102 @@ def accuracy_run():
         threading.Thread(target=_run_accuracy_job, daemon=True).start()
     return jsonify({"ok": True, "started": True,
                     "note": "pausing swarm+loadgen, measuring ~1-3 min, then resuming"})
+
+
+# --- interactive "Try it live" mode -----------------------------------------
+# Entering live mode stops the swarm + loadgen so a visitor gets a clean GPU
+# window (snappy routing + streaming). An inactivity watchdog auto-resumes the
+# swarm if nobody interacts for LIVE_IDLE_S, so the booth is never left dead if
+# a visitor walks away. Each prompt submission refreshes the deadline.
+LIVE_IDLE_S = int(os.environ.get("LIVE_IDLE_S", "90"))
+LIVE_DRAIN_S = float(os.environ.get("LIVE_DRAIN_S", "12"))
+_live_lock = threading.Lock()
+_live = {"on": False, "phase": "idle", "since": 0.0, "deadline": 0.0, "draining": False}
+
+
+def _live_watchdog():
+    """Auto-exit live mode after LIVE_IDLE_S of no activity."""
+    while True:
+        time.sleep(3)
+        with _live_lock:
+            if not _live["on"]:
+                return
+            expired = time.time() >= _live["deadline"]
+        if expired:
+            _live_exit()
+            return
+
+
+def _live_enter():
+    """Stop load, open a clean window. Returns (changed, phase)."""
+    with _live_lock:
+        already = _live["on"]
+        _live["on"] = True
+        _live["deadline"] = time.time() + LIVE_IDLE_S
+        if already:
+            return False, _live["phase"]
+        _live["since"] = time.time()
+        _live["phase"] = "draining"
+        _live["draining"] = True
+    _load_pause("live")
+
+    def _settle():
+        time.sleep(LIVE_DRAIN_S)
+        with _live_lock:
+            if _live["on"]:
+                _live["phase"] = "ready"
+                _live["draining"] = False
+    threading.Thread(target=_settle, daemon=True).start()
+    threading.Thread(target=_live_watchdog, daemon=True).start()
+    return True, "draining"
+
+
+def _live_exit():
+    """Release the window and resume swarm + loadgen."""
+    with _live_lock:
+        if not _live["on"]:
+            return False
+        _live["on"] = False
+        _live["phase"] = "idle"
+        _live["draining"] = False
+    _load_resume("live")
+    return True
+
+
+@app.route("/api/live/enter", methods=["POST", "GET"])
+def live_enter():
+    changed, phase = _live_enter()
+    with _live_lock:
+        d = max(0, round(_live["deadline"] - time.time()))
+    return jsonify({"ok": True, "live": True, "changed": changed,
+                    "phase": phase, "idle_timeout_s": LIVE_IDLE_S, "expires_in_s": d})
+
+
+@app.route("/api/live/exit", methods=["POST", "GET"])
+def live_exit():
+    changed = _live_exit()
+    return jsonify({"ok": True, "live": False, "changed": changed})
+
+
+@app.route("/api/live/ping", methods=["POST", "GET"])
+def live_ping():
+    """Refresh the inactivity deadline (called on each interaction)."""
+    with _live_lock:
+        if _live["on"]:
+            _live["deadline"] = time.time() + LIVE_IDLE_S
+            d = max(0, round(_live["deadline"] - time.time()))
+            return jsonify({"ok": True, "live": True, "phase": _live["phase"], "expires_in_s": d})
+    return jsonify({"ok": True, "live": False})
+
+
+@app.route("/api/live/state")
+def live_state():
+    with _live_lock:
+        on = _live["on"]
+        phase = _live["phase"]
+        d = max(0, round(_live["deadline"] - time.time())) if on else 0
+    return jsonify({"ok": True, "live": on, "phase": phase, "expires_in_s": d,
+                    "ready": on and phase == "ready"})
 
 
 if __name__ == "__main__":

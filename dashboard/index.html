@@ -76,6 +76,17 @@
   background:var(--amd-red);border:none;border-radius:9px;padding:0 16px;transition:background .2s;white-space:nowrap;}
 .tryit-btn:hover{background:var(--amd-red-hover);}
 .tryit-btn:disabled{background:#3a434f;cursor:default;}
+.tryit-mode{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.02);}
+.tryit-modebtn{font-family:var(--heading);font-weight:700;font-size:12.5px;color:#fff;cursor:pointer;
+  background:#1f9d57;border:none;border-radius:8px;padding:7px 14px;transition:background .2s,opacity .2s;white-space:nowrap;}
+.tryit-modebtn:hover{background:#23b063;}
+.tryit-modebtn.live{background:var(--amd-red);}
+.tryit-modebtn.live:hover{background:var(--amd-red-hover);}
+.tryit-modebtn:disabled{opacity:.6;cursor:default;}
+.tryit-modenote{font-family:var(--body);font-size:11.5px;color:var(--muted);}
+.tryit-modenote b{color:var(--text);font-weight:600;}
+.tryit-modenote .cd{font-family:var(--mono);color:var(--amd-red);font-weight:700;}
 .tryit-chips{display:flex;flex-wrap:wrap;gap:6px;}
 .tryit-chip{font-family:var(--mono);font-size:10.5px;color:var(--muted);cursor:pointer;
   background:#0e131a;border:1px solid var(--border);border-radius:999px;padding:4px 10px;transition:all .2s;}
@@ -320,10 +331,14 @@ body.resizing-ns{cursor:ns-resize;user-select:none;}
     <div class="panel">
       <h3>Try it live <span class="badge live dot" id="tryBadge">LIVE &middot; you type, it routes</span></h3>
       <div class="tryit">
+        <div class="tryit-mode" id="tryMode">
+          <button class="tryit-modebtn" id="tryModeBtn" type="button">Start live mode</button>
+          <span class="tryit-modenote" id="tryModeNote">Starting pauses the swarm so the GPU is free for your prompt.</span>
+        </div>
         <form class="tryit-form" id="tryForm" autocomplete="off">
-          <input class="tryit-input" id="tryInput" type="text" maxlength="400"
-            placeholder="Type any prompt and watch it route to the right-sized model&hellip;">
-          <button class="tryit-btn" id="tryBtn" type="submit">Route it</button>
+          <input class="tryit-input" id="tryInput" type="text" maxlength="400" disabled
+            placeholder="Start live mode, then type any prompt&hellip;">
+          <button class="tryit-btn" id="tryBtn" type="submit" disabled>Route it</button>
         </form>
         <div class="tryit-chips" id="tryChips"></div>
         <div class="tryit-decision" id="tryDecision"><span style="color:var(--muted)">The router picks the model before a single token is generated.</span></div>
@@ -700,6 +715,8 @@ connectLogs();
   const ans=document.getElementById('tryAnswer');
   const meta=document.getElementById('tryMeta');
   const chipsBox=document.getElementById('tryChips');
+  const modeBtn=document.getElementById('tryModeBtn');
+  const modeNote=document.getElementById('tryModeNote');
   if(!form) return;
   const CHIPS=[
     "hello there, thanks!",
@@ -710,7 +727,7 @@ connectLogs();
   ];
   chipsBox.innerHTML=CHIPS.map(c=>`<span class="tryit-chip">${c.replace(/</g,'&lt;')}</span>`).join('');
   chipsBox.querySelectorAll('.tryit-chip').forEach((el,i)=>{
-    el.addEventListener('click',()=>{input.value=CHIPS[i];input.focus();});
+    el.addEventListener('click',()=>{ if(!liveOn) return; input.value=CHIPS[i]; input.focus(); });
   });
   function tierOf(model){
     const m=(''+(model||'')).toLowerCase();
@@ -719,15 +736,64 @@ connectLogs();
     if(m.includes('2b')||m.includes('0.5b'))return{cls:'t2b',tag:'2B',hint:'fast / trivial'};
     return{cls:'tq',tag:'?',hint:''};
   }
+  // ---- live mode: stop the swarm for a clean GPU window, auto-resume on idle ----
+  let liveOn=false, liveReady=false, cdTimer=null, pollTimer=null;
+  function setFormEnabled(on){ input.disabled=!on; btn.disabled=!on||busy; }
+  function renderNote(state, secs){
+    if(state==='off'){ modeNote.innerHTML='Starting pauses the swarm so the GPU is free for your prompt.'; }
+    else if(state==='starting'){ modeNote.innerHTML='Pausing the swarm and clearing the GPU&hellip; one moment.'; }
+    else if(state==='ready'){ modeNote.innerHTML='<b>Live.</b> Swarm paused, GPU is yours. Auto-resumes in <span class="cd">'+secs+'s</span> of no activity.'; }
+  }
+  function stopTimers(){ if(cdTimer){clearInterval(cdTimer);cdTimer=null;} if(pollTimer){clearTimeout(pollTimer);pollTimer=null;} }
+  async function enterLive(){
+    if(liveOn) return;
+    liveOn=true; liveReady=false;
+    modeBtn.classList.add('live'); modeBtn.textContent='Exit live mode';
+    renderNote('starting');
+    window.__tryActive=true; // pause the auto-cycling sample visualiser
+    try{ await fetch('/api/live/enter',{method:'POST'}); }catch(e){}
+    // poll live state until ready, then enable the form
+    (async function pollReady(){
+      try{
+        const r=await fetch('/api/live/state'); const j=await r.json();
+        if(!liveOn) return;
+        if(j.ready){
+          liveReady=true; setFormEnabled(true); input.focus();
+          startCountdown(j.expires_in_s||90);
+        }else{ pollTimer=setTimeout(pollReady,1000); }
+      }catch(e){ if(liveOn) pollTimer=setTimeout(pollReady,1500); }
+    })();
+  }
+  function startCountdown(secs){
+    stopTimers(); let s=secs; renderNote('ready',s);
+    cdTimer=setInterval(()=>{ s-=1; if(s<=0){ exitLive(); return; } renderNote('ready',s); },1000);
+  }
+  async function pingLive(){
+    if(!liveOn) return;
+    try{ const r=await fetch('/api/live/ping',{method:'POST'}); const j=await r.json();
+      if(j.live&&liveReady) startCountdown(j.expires_in_s||90); }catch(e){}
+  }
+  async function exitLive(){
+    if(!liveOn) return;
+    liveOn=false; liveReady=false; stopTimers();
+    setFormEnabled(false);
+    modeBtn.classList.remove('live'); modeBtn.textContent='Start live mode';
+    renderNote('off');
+    window.__tryActive=false;
+    try{ await fetch('/api/live/exit',{method:'POST'}); }catch(e){}
+  }
+  modeBtn.addEventListener('click',()=>{ liveOn?exitLive():enterLive(); });
+  window.addEventListener('beforeunload',()=>{ if(liveOn) navigator.sendBeacon&&navigator.sendBeacon('/api/live/exit'); });
+
   let busy=false, es=null;
   async function run(prompt){
-    if(busy) return;
+    if(busy||!liveOn||!liveReady) return;
     busy=true; btn.disabled=true; btn.textContent='Routing\u2026';
+    pingLive();  // keep the clean window alive while we route
     dec.innerHTML='<span style="color:var(--muted)">classifying on the CPU\u2026</span>';
     ans.className='tryit-answer placeholder'; ans.textContent='waiting for the model\u2026';
     meta.textContent='';
-    // Pause the auto-cycling sample visualiser while a human drives it.
-    window.__tryActive=true;
+    // keep the sample visualiser paused; live mode owns __tryActive
     let acc='';
     try{
       const resp=await fetch('/api/route_answer?prompt='+encodeURIComponent(prompt));
@@ -781,12 +847,14 @@ connectLogs();
     }catch(e){
       ans.className='tryit-answer placeholder'; ans.textContent='Could not reach the router. Try again.';
     }finally{
-      busy=false; btn.disabled=false; btn.textContent='Route it';
-      window.__tryActive=false;
+      busy=false; btn.textContent='Route it';
+      btn.disabled=!(liveOn&&liveReady);
+      pingLive();  // refresh the idle window after the answer finishes
     }
   }
   form.addEventListener('submit',(e)=>{
     e.preventDefault();
+    if(!liveOn||!liveReady) return;
     const p=input.value.trim();
     if(p) run(p);
   });
