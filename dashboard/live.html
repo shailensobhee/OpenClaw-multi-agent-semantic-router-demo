@@ -72,23 +72,37 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);position:rel
 .gstats{display:flex;gap:10px;margin-top:10px;}
 .caption{color:var(--muted);font-size:11.5px;margin-top:8px;line-height:1.5;}
 
-/* Semantic routing lanes (same visual language as the main board) */
-.route-lanes{display:flex;flex-direction:column;gap:8px;}
-.lane{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;
-  background:#0e131a;border:1px solid var(--border);opacity:.5;
-  transition:all .35s ease;position:relative;}
-.lane .lane-tag{font-family:var(--heading);font-weight:800;font-size:13px;color:#fff;
-  background:#2a333f;border-radius:6px;padding:2px 8px;min-width:42px;text-align:center;transition:all .35s;}
-.lane .lane-nm{font-size:12.5px;color:var(--text);font-weight:600;}
-.lane .lane-hint{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto;}
-.lane.active{opacity:1;border-color:var(--amd-red);
-  background:linear-gradient(135deg,rgba(237,28,36,.18),rgba(237,28,36,.05));
-  box-shadow:0 0 20px rgba(237,28,36,.25);transform:translateX(2px);}
-.lane.active .lane-tag{box-shadow:0 0 12px rgba(255,255,255,.35);}
-#lane05 .lane-tag{background:#007C97;color:#fff;}
-#lane7 .lane-tag{background:#ED1C24;color:#fff;}
-#lane32 .lane-tag{background:#F26522;color:#1a0c03;}
-.lane.active .lane-hint{color:var(--amd-red);font-weight:700;}
+/* Animated routing flowchart */
+.flow-wrap{display:flex;justify-content:center;padding:4px 0 2px;}
+#flow{width:100%;max-width:360px;height:auto;}
+/* nodes */
+.node rect{fill:#0e131a;stroke:var(--border);stroke-width:1.4;transition:stroke .35s,fill .35s,filter .35s;}
+.node .nt{fill:var(--text);font-family:var(--heading);font-weight:700;font-size:13px;text-anchor:middle;}
+.node .nt.small{font-size:11.5px;}
+.node .ns{fill:var(--muted);font-family:var(--body);font-size:9.5px;text-anchor:middle;}
+.node .mtag{font-family:var(--heading);font-weight:800;font-size:17px;text-anchor:middle;}
+.m2b .mtag{fill:#2bb8d6;} .m9b .mtag{fill:#ff5a60;} .m27b .mtag{fill:#ff9b4d;}
+.node .pick{font-size:14px;text-anchor:middle;opacity:0;transition:opacity .3s;font-weight:800;}
+/* classifier scan pulse */
+.node.cpu .scan{fill:none;stroke:var(--acc);stroke-width:1.6;opacity:0;}
+.node.cpu.scanning rect{stroke:var(--acc);filter:drop-shadow(0 0 7px rgba(255,122,48,.5));}
+.node.cpu.scanning .scan{animation:scan 1s ease-out infinite;}
+@keyframes scan{0%{r:4;opacity:.8;}100%{r:120;opacity:0;}}
+/* connectors */
+.conn{fill:none;stroke:#263142;stroke-width:2;stroke-linecap:round;transition:stroke .3s;}
+.conn.lit{stroke:url(#pktGrad);stroke-width:3;filter:drop-shadow(0 0 5px rgba(237,28,36,.55));}
+.conn.dim{stroke:#1a2029;}
+/* selected model highlight */
+.node.model.chosen rect{fill:rgba(237,28,36,.12);stroke:var(--amd-red);stroke-width:2.2;
+  filter:drop-shadow(0 0 14px rgba(237,28,36,.45));}
+.node.model.chosen .pick{opacity:1;fill:var(--ok);}
+.node.model.faded{opacity:.32;transition:opacity .4s;}
+.node.gpu.lit rect{fill:rgba(46,204,113,.1);stroke:var(--ok);filter:drop-shadow(0 0 12px rgba(46,204,113,.4));}
+.node.gpu.lit .nt{fill:var(--ok);}
+.node.active rect{stroke:var(--acc);filter:drop-shadow(0 0 9px rgba(255,122,48,.45));}
+/* traveling packet */
+.pkt{fill:url(#pktGrad);filter:url(#soft);opacity:0;}
+.pkt.on{opacity:1;}
 
 /* Try-it-live */
 .tryit{display:flex;flex-direction:column;gap:12px;}
@@ -175,13 +189,74 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);position:rel
     </div>
 
     <div class="panel">
-      <h3>Where it routed <span class="badge live dot" id="routeBadge">LIVE &middot; vLLM-SR</span></h3>
-      <div class="route-lanes">
-        <div class="lane" id="lane05"><span class="lane-tag">2B</span><span class="lane-nm">Qwen3.5-2B</span><span class="lane-hint">trivial</span></div>
-        <div class="lane" id="lane7"><span class="lane-tag">9B</span><span class="lane-nm">Qwen3.5-9B</span><span class="lane-hint">default</span></div>
-        <div class="lane" id="lane32"><span class="lane-tag">27B</span><span class="lane-nm">Qwen3.8-27B</span><span class="lane-hint">hard reasoning</span></div>
+      <h3>How your prompt is routed <span class="badge live dot" id="routeBadge">LIVE &middot; vLLM-SR</span></h3>
+      <div class="flow-wrap">
+        <svg id="flow" viewBox="0 0 340 500" preserveAspectRatio="xMidYMid meet" aria-label="routing flowchart">
+          <defs>
+            <linearGradient id="pktGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#ff7a30"/><stop offset="1" stop-color="#ed1c24"/>
+            </linearGradient>
+            <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          <!-- connectors: classifier hub -> each model (drawn first, under nodes) -->
+          <path id="cx2b"  class="conn" d="M170,150 C110,180 56,180 56,210"/>
+          <path id="cx9b"  class="conn" d="M170,150 L170,210"/>
+          <path id="cx27b" class="conn" d="M170,150 C230,180 284,180 284,210"/>
+          <!-- connectors: each model -> GPU answer -->
+          <path id="dn2b"  class="conn down" d="M56,300  C56,345 170,345 170,375"/>
+          <path id="dn9b"  class="conn down" d="M170,300 L170,375"/>
+          <path id="dn27b" class="conn down" d="M284,300 C284,345 170,345 170,375"/>
+
+          <!-- NODE: prompt -->
+          <g id="nPrompt" class="node">
+            <rect x="70" y="12" width="200" height="42" rx="10"/>
+            <text class="nt" x="170" y="31">Your prompt</text>
+            <text class="ns" x="170" y="46" id="nPromptSub">typed at the booth</text>
+          </g>
+          <!-- NODE: classifier (CPU) -->
+          <g id="nClass" class="node cpu">
+            <rect x="46" y="96" width="248" height="54" rx="11"/>
+            <text class="nt" x="170" y="118">Semantic Router</text>
+            <text class="ns" x="170" y="134">classifies on the CPU &middot; 0 GPU tokens</text>
+            <circle class="scan" cx="170" cy="123" r="0"/>
+          </g>
+          <!-- NODES: three models -->
+          <g id="n2b" class="node model m2b">
+            <rect x="8" y="212" width="96" height="88" rx="11"/>
+            <text class="mtag" x="56" y="242">2B</text>
+            <text class="nt small" x="56" y="266">Qwen3.5-2B</text>
+            <text class="ns" x="56" y="284">trivial</text>
+            <text class="pick" x="56" y="236">&#10003;</text>
+          </g>
+          <g id="n9b" class="node model m9b">
+            <rect x="122" y="212" width="96" height="88" rx="11"/>
+            <text class="mtag" x="170" y="242">9B</text>
+            <text class="nt small" x="170" y="266">Qwen3.5-9B</text>
+            <text class="ns" x="170" y="284">standard</text>
+            <text class="pick" x="170" y="236">&#10003;</text>
+          </g>
+          <g id="n27b" class="node model m27b">
+            <rect x="236" y="212" width="96" height="88" rx="11"/>
+            <text class="mtag" x="284" y="242">27B</text>
+            <text class="nt small" x="284" y="266">Qwen3.8-27B</text>
+            <text class="ns" x="284" y="284">hard reasoning</text>
+            <text class="pick" x="284" y="236">&#10003;</text>
+          </g>
+          <!-- NODE: GPU answer -->
+          <g id="nGpu" class="node gpu">
+            <rect x="60" y="376" width="220" height="52" rx="11"/>
+            <text class="nt" x="170" y="397">Answer on the MI300X</text>
+            <text class="ns" x="170" y="413" id="nGpuSub">one GPU &middot; nothing leaves it</text>
+          </g>
+
+          <!-- traveling packet -->
+          <circle id="pkt" class="pkt" r="6" cx="-20" cy="-20"/>
+        </svg>
       </div>
-      <p class="caption">The router picks the model on the CPU before a single GPU token is generated.</p>
+      <p class="caption" id="flowCap">Type a prompt and watch the router pick the right-sized model before a single token is generated.</p>
     </div>
   </div>
 
@@ -270,14 +345,100 @@ pollThru();setInterval(pollThru,1500);
   });
   function tierOf(model){
     const m=(''+(model||'')).toLowerCase();
-    if(m.includes('27b')||m.includes('32b'))return{cls:'t27b',tag:'27B',hint:'hard / reasoning',lane:'lane32'};
-    if(m.includes('9b')||m.includes('7b'))return{cls:'t9b',tag:'9B',hint:'standard',lane:'lane7'};
-    if(m.includes('2b')||m.includes('0.5b'))return{cls:'t2b',tag:'2B',hint:'fast / trivial',lane:'lane05'};
-    return{cls:'tq',tag:'?',hint:'',lane:null};
+    if(m.includes('27b')||m.includes('32b'))return{cls:'t27b',tag:'27B',hint:'hard / reasoning',key:'27b'};
+    if(m.includes('9b')||m.includes('7b'))return{cls:'t9b',tag:'9B',hint:'standard',key:'9b'};
+    if(m.includes('2b')||m.includes('0.5b'))return{cls:'t2b',tag:'2B',hint:'fast / trivial',key:'2b'};
+    return{cls:'tq',tag:'?',hint:'',key:null};
   }
-  function lightLane(id){
-    ['lane05','lane7','lane32'].forEach(l=>document.getElementById(l).classList.toggle('active', l===id));
+
+  /* ---------- Flowchart animation engine ---------- */
+  const flow = {
+    svg: document.getElementById('flow'),
+    pkt: document.getElementById('pkt'),
+    ids: ['nPrompt','nClass','n2b','n9b','n27b','nGpu'],
+    conns: ['cx2b','cx9b','cx27b','dn2b','dn9b','dn27b'],
+    _raf: null,
+  };
+  const Q=id=>document.getElementById(id);
+  function flowReset(){
+    if(flow._raf){ cancelAnimationFrame(flow._raf); flow._raf=null; }
+    flow.ids.forEach(i=>{ const el=Q(i); if(el) el.classList.remove('chosen','faded','active','scanning','lit'); });
+    flow.conns.forEach(c=>{ const el=Q(c); if(el) el.classList.remove('lit','dim'); });
+    flow.pkt.classList.remove('on');
   }
+  // move the packet along an SVG path over `dur` ms, then resolve.
+  function movePacketAlong(pathId, dur){
+    return new Promise(res=>{
+      const path=Q(pathId); if(!path){ res(); return; }
+      if(flow._raf){ cancelAnimationFrame(flow._raf); flow._raf=null; }
+      const len=path.getTotalLength(); const t0=performance.now();
+      flow.pkt.classList.add('on');
+      function step(now){
+        const k=Math.min(1,(now-t0)/dur);
+        const p=path.getPointAtLength(len*k);
+        flow.pkt.setAttribute('cx',p.x); flow.pkt.setAttribute('cy',p.y);
+        if(k<1){ flow._raf=requestAnimationFrame(step); } else { flow._raf=null; res(); }
+      }
+      flow._raf=requestAnimationFrame(step);
+    });
+  }
+  // Stage 1: prompt enters, classifier scans. Called on submit. Marks scanning
+  // synchronously (the classify API can return in ~50ms, faster than the packet
+  // travel) and records when the packet is EXPECTED to reach the classifier, so
+  // the pick can gate on a plain timer, never on a RAF promise that might stall.
+  function flowClassifyStart(){
+    flowReset();
+    Q('nPrompt').classList.add('active');
+    Q('nClass').classList.add('scanning');
+    flow._startAt = performance.now();
+    flow._startDur = 420;
+    flow.pkt.setAttribute('cx',170); flow.pkt.setAttribute('cy',33); flow.pkt.classList.add('on');
+    // Visual only (best-effort): slide the packet prompt -> classifier.
+    animateLine(170,54,170,96,flow._startDur).then(()=>{
+      Q('nPrompt').classList.remove('active'); Q('nClass').classList.add('active');
+    });
+  }
+  // helper to animate the packet along a straight line (no path element needed)
+  function animateLine(x1,y1,x2,y2,dur){
+    return new Promise(res=>{
+      const t0=performance.now(); flow.pkt.classList.add('on');
+      function step(now){
+        const k=Math.min(1,(now-t0)/dur);
+        flow.pkt.setAttribute('cx',x1+(x2-x1)*k);
+        flow.pkt.setAttribute('cy',y1+(y2-y1)*k);
+        if(k<1){ flow._raf=requestAnimationFrame(step); } else { flow._raf=null; res(); }
+      }
+      flow._raf=requestAnimationFrame(step);
+    });
+  }
+  const wait=ms=>new Promise(r=>setTimeout(r,ms));
+  // Stage 2: decision arrived -> light the chosen path, mark the model chosen,
+  // fade the rest, light the GPU. Node-highlighting is driven by plain timers so
+  // it ALWAYS completes; the traveling packet is layered on as best-effort visual
+  // and can never block the state machine (a stalled RAF used to hang the pick).
+  async function flowPickModel(key){
+    const map={'2b':{node:'n2b',up:'cx2b',down:'dn2b'},
+               '9b':{node:'n9b',up:'cx9b',down:'dn9b'},
+               '27b':{node:'n27b',up:'cx27b',down:'dn27b'}};
+    const m=map[key]; if(!m){ return; }
+    // gate on the remaining scan-travel time (timer, not a RAF promise), plus a
+    // short "thinking" beat so the viewer sees the CPU classify.
+    const elapsed=performance.now()-(flow._startAt||performance.now());
+    await wait(Math.max(0,(flow._startDur||420)-elapsed)+260);
+    Q('nClass').classList.remove('scanning','active');
+    // light the chosen classifier->model connector, dim the rest
+    ['cx2b','cx9b','cx27b'].forEach(c=>{ Q(c).classList.toggle('lit', c===m.up); Q(c).classList.toggle('dim', c!==m.up); });
+    ['n2b','n9b','n27b'].forEach(n=>{ Q(n).classList.toggle('faded', n!==m.node); });
+    movePacketAlong(m.up, 600);            // visual, fire-and-forget
+    await wait(620);
+    Q(m.node).classList.add('chosen');
+    ['dn2b','dn9b','dn27b'].forEach(c=>{ Q(c).classList.toggle('lit', c===m.down); Q(c).classList.toggle('dim', c!==m.down); });
+    movePacketAlong(m.down, 600);          // visual, fire-and-forget
+    await wait(620);
+    Q('nGpu').classList.add('lit');
+    flow.pkt.classList.remove('on');
+  }
+  function flowError(){ flowReset(); Q('nClass').classList.add('active'); }
 
   let liveReady=false, busy=false, cdTimer=null, pollTimer=null, exiting=false;
   function setFormEnabled(on){ input.disabled=!on; btn.disabled=!on||busy; }
@@ -328,6 +489,7 @@ pollThru();setInterval(pollThru,1500);
     if(busy||!liveReady) return;
     busy=true; btn.disabled=true; btn.textContent='Routing\u2026';
     pingLive();
+    flowClassifyStart();
     dec.innerHTML='<span style="color:var(--muted)">classifying on the CPU\u2026</span>';
     ans.className='tryit-answer placeholder'; ans.textContent='waiting for the model\u2026';
     meta.textContent='';
@@ -353,7 +515,7 @@ pollThru();setInterval(pollThru,1500);
           if(!data) continue;
           let j; try{j=JSON.parse(data);}catch(e){continue;}
           if(ev==='decision'){
-            const t=tierOf(j.model); lightLane(t.lane);
+            const t=tierOf(j.model); flowPickModel(t.key);
             const conf=(j.confidence!=null&&j.confidence>0)?(' &middot; <span class="tryit-conf">'+(j.confidence*100).toFixed(0)+'% confident</span>'):'';
             const sig=(j.signals&&j.signals.length)?(' &middot; <span class="tryit-sig">'+j.signals.join(', ')+'</span>'):'';
             dec.innerHTML='routed to <span class="tryit-pill '+t.cls+'">'+t.tag+'</span> <b style="color:var(--text)">'+(j.model||'?')+'</b> <span style="color:var(--muted)">('+t.hint+')</span>'+conf+sig;
@@ -374,6 +536,7 @@ pollThru();setInterval(pollThru,1500);
             const ttft=j.ttft_ms!=null?('first token <b>'+j.ttft_ms+' ms</b> &middot; '):'';
             meta.innerHTML+=' &nbsp;|&nbsp; '+ttft+(j.tokens||0)+' tokens in <b>'+((j.total_ms||0)/1000).toFixed(1)+'s</b> &middot; served by '+(j.served_by||'?');
           }else if(ev==='error'){
+            flowError();
             ans.className='tryit-answer placeholder';
             ans.textContent=(j.stage==='answer'?'The model was busy generating; try again.':'Router unavailable; try again.');
             meta.textContent=j.error||'';
