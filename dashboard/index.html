@@ -129,6 +129,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
 .sov{display:flex;align-items:center;gap:10px;padding:8px 16px;border-radius:999px;
   border:1px solid rgba(46,204,113,.5);background:rgba(46,204,113,.08);font-family:var(--mono);font-size:13px;}
 .sov .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok);animation:pulse 2s infinite;}
+.tryit-cta{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:999px;
+  font-family:var(--heading);font-weight:700;font-size:13.5px;letter-spacing:.3px;color:#fff;cursor:pointer;
+  text-decoration:none;background:var(--amd-red);border:1px solid rgba(237,28,36,.6);
+  box-shadow:0 0 18px rgba(237,28,36,.25);transition:background .2s,transform .12s,box-shadow .2s;}
+.tryit-cta:hover{background:var(--amd-red-hover);box-shadow:0 0 26px rgba(237,28,36,.4);transform:translateY(-1px);}
+.tryit-cta:active{transform:translateY(0);}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
 
 .wrap{position:relative;z-index:1;display:grid;grid-template-columns:1.5fr 1fr;gap:18px;
@@ -286,6 +292,7 @@ body.resizing-ns{cursor:ns-resize;user-select:none;}
     <span class="hdr-sub">Sovereign multi-agent AI &middot; Instinct&trade; MI300X &middot; ROCm&trade; &middot; served by vLLM</span>
   </div>
   <div class="hdr-spacer"></div>
+  <a class="tryit-cta" href="/live" id="tryitCta">Try it live &rarr;</a>
   <div class="sov"><span class="dot"></span><span>LOCAL ONLY &middot; 0 cloud calls</span></div>
 </header>
 
@@ -326,25 +333,6 @@ body.resizing-ns{cursor:ns-resize;user-select:none;}
         </div>
       </div>
       <div class="route-meta"><span id="routeMeta">routing on the CPU &middot; 0 GPU VRAM</span></div>
-    </div>
-
-    <div class="panel">
-      <h3>Try it live <span class="badge live dot" id="tryBadge">LIVE &middot; you type, it routes</span></h3>
-      <div class="tryit">
-        <div class="tryit-mode" id="tryMode">
-          <button class="tryit-modebtn" id="tryModeBtn" type="button">Start live mode</button>
-          <span class="tryit-modenote" id="tryModeNote">Starting pauses the swarm so the GPU is free for your prompt.</span>
-        </div>
-        <form class="tryit-form" id="tryForm" autocomplete="off">
-          <input class="tryit-input" id="tryInput" type="text" maxlength="400" disabled
-            placeholder="Start live mode, then type any prompt&hellip;">
-          <button class="tryit-btn" id="tryBtn" type="submit" disabled>Route it</button>
-        </form>
-        <div class="tryit-chips" id="tryChips"></div>
-        <div class="tryit-decision" id="tryDecision"><span style="color:var(--muted)">The router picks the model before a single token is generated.</span></div>
-        <div class="tryit-answer placeholder" id="tryAnswer">The chosen model&rsquo;s answer streams here, live from this MI300X.</div>
-        <div class="tryit-meta" id="tryMeta"></div>
-      </div>
     </div>
 
     <div class="panel">
@@ -702,161 +690,5 @@ connectLogs();
   grip.addEventListener('mousedown',onDown); grip.addEventListener('touchstart',onDown,{passive:false});
   grip.addEventListener('dblclick',()=>{ apply(DEF); localStorage.setItem(KEY,DEF); });
   window.addEventListener('resize',()=>{ const h=parseInt(getComputedStyle(root).getPropertyValue('--console-h'),10); if(!isNaN(h)) apply(h); });
-})();
-/* ---------- Try it live: human prompt -> routing + streamed answer ---------- */
-/* Streams /api/route_answer (SSE). First a 'decision' event lights the tier the
-   router picked (instant, no GPU), then 'token' events stream the chosen model's
-   real answer, then 'done' reports timing. Nothing is simulated. */
-(function(){
-  const form=document.getElementById('tryForm');
-  const input=document.getElementById('tryInput');
-  const btn=document.getElementById('tryBtn');
-  const dec=document.getElementById('tryDecision');
-  const ans=document.getElementById('tryAnswer');
-  const meta=document.getElementById('tryMeta');
-  const chipsBox=document.getElementById('tryChips');
-  const modeBtn=document.getElementById('tryModeBtn');
-  const modeNote=document.getElementById('tryModeNote');
-  if(!form) return;
-  const CHIPS=[
-    "hello there, thanks!",
-    "What is the capital of France?",
-    "Summarize what AMD ROCm is in one sentence.",
-    "A train travels 60 miles in 1.5 hours. What is its average speed?",
-    "Prove step by step that there are infinitely many primes."
-  ];
-  chipsBox.innerHTML=CHIPS.map(c=>`<span class="tryit-chip">${c.replace(/</g,'&lt;')}</span>`).join('');
-  chipsBox.querySelectorAll('.tryit-chip').forEach((el,i)=>{
-    el.addEventListener('click',()=>{ if(!liveOn) return; input.value=CHIPS[i]; input.focus(); });
-  });
-  function tierOf(model){
-    const m=(''+(model||'')).toLowerCase();
-    if(m.includes('27b')||m.includes('32b'))return{cls:'t27b',tag:'27B',hint:'hard / reasoning'};
-    if(m.includes('9b')||m.includes('7b'))return{cls:'t9b',tag:'9B',hint:'standard'};
-    if(m.includes('2b')||m.includes('0.5b'))return{cls:'t2b',tag:'2B',hint:'fast / trivial'};
-    return{cls:'tq',tag:'?',hint:''};
-  }
-  // ---- live mode: stop the swarm for a clean GPU window, auto-resume on idle ----
-  let liveOn=false, liveReady=false, cdTimer=null, pollTimer=null;
-  function setFormEnabled(on){ input.disabled=!on; btn.disabled=!on||busy; }
-  function renderNote(state, secs){
-    if(state==='off'){ modeNote.innerHTML='Starting pauses the swarm so the GPU is free for your prompt.'; }
-    else if(state==='starting'){ modeNote.innerHTML='Pausing the swarm and clearing the GPU&hellip; one moment.'; }
-    else if(state==='ready'){ modeNote.innerHTML='<b>Live.</b> Swarm paused, GPU is yours. Auto-resumes in <span class="cd">'+secs+'s</span> of no activity.'; }
-  }
-  function stopTimers(){ if(cdTimer){clearInterval(cdTimer);cdTimer=null;} if(pollTimer){clearTimeout(pollTimer);pollTimer=null;} }
-  async function enterLive(){
-    if(liveOn) return;
-    liveOn=true; liveReady=false;
-    modeBtn.classList.add('live'); modeBtn.textContent='Exit live mode';
-    renderNote('starting');
-    window.__tryActive=true; // pause the auto-cycling sample visualiser
-    try{ await fetch('/api/live/enter',{method:'POST'}); }catch(e){}
-    // poll live state until ready, then enable the form
-    (async function pollReady(){
-      try{
-        const r=await fetch('/api/live/state'); const j=await r.json();
-        if(!liveOn) return;
-        if(j.ready){
-          liveReady=true; setFormEnabled(true); input.focus();
-          startCountdown(j.expires_in_s||90);
-        }else{ pollTimer=setTimeout(pollReady,1000); }
-      }catch(e){ if(liveOn) pollTimer=setTimeout(pollReady,1500); }
-    })();
-  }
-  function startCountdown(secs){
-    stopTimers(); let s=secs; renderNote('ready',s);
-    cdTimer=setInterval(()=>{ s-=1; if(s<=0){ exitLive(); return; } renderNote('ready',s); },1000);
-  }
-  async function pingLive(){
-    if(!liveOn) return;
-    try{ const r=await fetch('/api/live/ping',{method:'POST'}); const j=await r.json();
-      if(j.live&&liveReady) startCountdown(j.expires_in_s||90); }catch(e){}
-  }
-  async function exitLive(){
-    if(!liveOn) return;
-    liveOn=false; liveReady=false; stopTimers();
-    setFormEnabled(false);
-    modeBtn.classList.remove('live'); modeBtn.textContent='Start live mode';
-    renderNote('off');
-    window.__tryActive=false;
-    try{ await fetch('/api/live/exit',{method:'POST'}); }catch(e){}
-  }
-  modeBtn.addEventListener('click',()=>{ liveOn?exitLive():enterLive(); });
-  window.addEventListener('beforeunload',()=>{ if(liveOn) navigator.sendBeacon&&navigator.sendBeacon('/api/live/exit'); });
-
-  let busy=false, es=null;
-  async function run(prompt){
-    if(busy||!liveOn||!liveReady) return;
-    busy=true; btn.disabled=true; btn.textContent='Routing\u2026';
-    pingLive();  // keep the clean window alive while we route
-    dec.innerHTML='<span style="color:var(--muted)">classifying on the CPU\u2026</span>';
-    ans.className='tryit-answer placeholder'; ans.textContent='waiting for the model\u2026';
-    meta.textContent='';
-    // keep the sample visualiser paused; live mode owns __tryActive
-    let acc='';
-    try{
-      const resp=await fetch('/api/route_answer?prompt='+encodeURIComponent(prompt));
-      if(!resp.ok||!resp.body) throw new Error('no stream');
-      const reader=resp.body.getReader();
-      const td=new TextDecoder();
-      let buf='';
-      while(true){
-        const {value,done}=await reader.read();
-        if(done) break;
-        buf+=td.decode(value,{stream:true});
-        // parse SSE frames separated by blank lines
-        let idx;
-        while((idx=buf.indexOf('\n\n'))>=0){
-          const frame=buf.slice(0,idx); buf=buf.slice(idx+2);
-          let ev='message', data='';
-          frame.split('\n').forEach(l=>{
-            if(l.startsWith('event:'))ev=l.slice(6).trim();
-            else if(l.startsWith('data:'))data+=l.slice(5).trim();
-          });
-          if(!data) continue;
-          let j; try{j=JSON.parse(data);}catch(e){continue;}
-          if(ev==='decision'){
-            const t=tierOf(j.model);
-            const conf=(j.confidence!=null&&j.confidence>0)?(' &middot; <span class="tryit-conf">'+(j.confidence*100).toFixed(0)+'% confident</span>'):'';
-            const sig=(j.signals&&j.signals.length)?(' &middot; <span class="tryit-sig">'+j.signals.join(', ')+'</span>'):'';
-            dec.innerHTML='routed to <span class="tryit-pill '+t.cls+'">'+t.tag+'</span> <b style="color:var(--text)">'+(j.model||'?')+'</b> <span style="color:var(--muted)">('+t.hint+')</span>'+conf+sig;
-            meta.innerHTML='decided in <b>'+(j.route_ms!=null?j.route_ms:'?')+' ms</b> on the CPU &middot; 0 GPU tokens';
-            ans.className='tryit-answer'; ans.innerHTML='<span class="caret"></span>';
-          }else if(ev==='token'){
-            if(j.thinking){
-              ans.className='tryit-answer placeholder';
-              ans.innerHTML='<i>the model is thinking\u2026</i><span class="caret"></span>';
-            }else{
-              acc=j.text||acc;
-              ans.className='tryit-answer';
-              ans.innerHTML=(acc.replace(/</g,'&lt;'))+'<span class="caret"></span>';
-              ans.scrollTop=ans.scrollHeight;
-            }
-          }else if(ev==='done'){
-            ans.innerHTML=(j.answer||acc||'(no answer)').replace(/</g,'&lt;');
-            const ttft=j.ttft_ms!=null?('first token <b>'+j.ttft_ms+' ms</b> &middot; '):'';
-            meta.innerHTML+=' &nbsp;|&nbsp; '+ttft+(j.tokens||0)+' tokens in <b>'+((j.total_ms||0)/1000).toFixed(1)+'s</b> &middot; served by '+(j.served_by||'?');
-          }else if(ev==='error'){
-            ans.className='tryit-answer placeholder';
-            ans.textContent=(j.stage==='answer'?'The model was busy generating; try again.':'Router unavailable; try again.');
-            meta.textContent=j.error||'';
-          }
-        }
-      }
-    }catch(e){
-      ans.className='tryit-answer placeholder'; ans.textContent='Could not reach the router. Try again.';
-    }finally{
-      busy=false; btn.textContent='Route it';
-      btn.disabled=!(liveOn&&liveReady);
-      pingLive();  // refresh the idle window after the answer finishes
-    }
-  }
-  form.addEventListener('submit',(e)=>{
-    e.preventDefault();
-    if(!liveOn||!liveReady) return;
-    const p=input.value.trim();
-    if(p) run(p);
-  });
 })();
 </script>

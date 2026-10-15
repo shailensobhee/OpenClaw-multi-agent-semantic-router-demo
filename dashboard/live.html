@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try it live &middot; OpenClaw Swarm &middot; One MI300X, Zero Cloud</title>
+<style>
+:root{
+  --amd-red:#ed1c24; --amd-red-hover:#c8161d;
+  --bg:#0b0e13; --surface:#13181f; --surface-2:#1a212b; --border:#2a333f; --line:#2a333f;
+  --text:#eef2f6; --muted:#9aa7b4; --ok:#2ecc71; --warn:#f0a020; --acc:#ff7a30;
+  --heading:"Klavika","Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;min-height:100%;}
+body{background:var(--bg);color:var(--text);font-family:var(--body);position:relative;}
+.glow{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(1100px 600px at 12% -12%, rgba(237,28,36,0.16), transparent 60%),
+    radial-gradient(900px 700px at 100% 0%, rgba(237,28,36,0.07), transparent 55%);}
+
+.hdr{position:relative;z-index:2;display:flex;align-items:center;gap:20px;
+  padding:16px 34px;border-bottom:1px solid var(--border);
+  background:rgba(0,0,0,0.4);backdrop-filter:blur(6px);}
+.logo{display:flex;align-items:center;}
+.logo svg{height:30px;width:auto;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.55));}
+.hdr-txt{display:flex;flex-direction:column;line-height:1.15;}
+.hdr-ev{font-family:var(--heading);font-weight:700;font-size:17px;letter-spacing:.4px;}
+.hdr-sub{color:var(--muted);font-size:12.5px;letter-spacing:.3px;}
+.hdr-spacer{flex:1;}
+.sov{display:flex;align-items:center;gap:10px;padding:8px 16px;border-radius:999px;
+  border:1px solid rgba(46,204,113,.5);background:rgba(46,204,113,.08);font-family:var(--mono);font-size:13px;}
+.sov .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+.back-cta{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:999px;
+  font-family:var(--heading);font-weight:700;font-size:13.5px;letter-spacing:.3px;color:#fff;cursor:pointer;
+  text-decoration:none;background:#2a333f;border:1px solid var(--border);transition:background .2s,transform .12s;}
+.back-cta:hover{background:#353f4c;transform:translateY(-1px);}
+.back-cta:active{transform:translateY(0);}
+
+.wrap{position:relative;z-index:1;display:grid;grid-template-columns:1fr 1.15fr;gap:18px;
+  padding:18px 34px 24px;align-items:start;}
+@media(max-width:980px){.wrap{grid-template-columns:1fr;}}
+
+.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px;}
+.m{background:linear-gradient(160deg,var(--surface),var(--surface-2));border:1px solid var(--border);
+  border-radius:14px;padding:13px 16px;position:relative;overflow:hidden;}
+.m::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--amd-red);}
+.m .k{color:var(--muted);font-size:11px;letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px;}
+.m .v{font-family:var(--heading);font-weight:800;font-size:32px;line-height:1;}
+.m .u{color:var(--muted);font-size:12px;margin-top:4px;}
+.m .v small{font-size:16px;color:var(--muted);font-weight:600;}
+
+.panel{background:linear-gradient(160deg,var(--surface),var(--surface-2));border:1px solid var(--border);
+  border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;margin-bottom:14px;}
+.panel h3{font-family:var(--heading);font-weight:700;font-size:15px;margin:0 0 12px;letter-spacing:.3px;
+  display:flex;align-items:center;gap:9px;}
+.badge{font-family:var(--mono);font-size:10px;border-radius:6px;padding:2px 7px;font-weight:600;letter-spacing:.3px;}
+.badge.live{color:var(--ok);border:1px solid rgba(46,204,113,.5);background:rgba(46,204,113,.08);}
+.badge.sim{color:var(--warn);border:1px solid rgba(240,160,32,.5);background:rgba(240,160,32,.08);}
+.badge.dot::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px;vertical-align:middle;animation:pulse 1.6s infinite;}
+
+/* GPU gauge */
+.gbar-wrap{margin-bottom:11px;}
+.gbar-lbl{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px;}
+.gbar-lbl b{color:var(--text);font-family:var(--mono);}
+.gbar{height:13px;border-radius:7px;background:rgba(255,255,255,.05);overflow:hidden;border:1px solid var(--border);}
+.gbar i{display:block;height:100%;background:linear-gradient(90deg,var(--amd-red),#ff5a60);transition:width .6s;}
+.gbar.mem i{background:linear-gradient(90deg,#ed1c24,#ff7a30);}
+.gstats{display:flex;gap:10px;margin-top:10px;}
+.caption{color:var(--muted);font-size:11.5px;margin-top:8px;line-height:1.5;}
+
+/* Semantic routing lanes (same visual language as the main board) */
+.route-lanes{display:flex;flex-direction:column;gap:8px;}
+.lane{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;
+  background:#0e131a;border:1px solid var(--border);opacity:.5;
+  transition:all .35s ease;position:relative;}
+.lane .lane-tag{font-family:var(--heading);font-weight:800;font-size:13px;color:#fff;
+  background:#2a333f;border-radius:6px;padding:2px 8px;min-width:42px;text-align:center;transition:all .35s;}
+.lane .lane-nm{font-size:12.5px;color:var(--text);font-weight:600;}
+.lane .lane-hint{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto;}
+.lane.active{opacity:1;border-color:var(--amd-red);
+  background:linear-gradient(135deg,rgba(237,28,36,.18),rgba(237,28,36,.05));
+  box-shadow:0 0 20px rgba(237,28,36,.25);transform:translateX(2px);}
+.lane.active .lane-tag{box-shadow:0 0 12px rgba(255,255,255,.35);}
+#lane05 .lane-tag{background:#007C97;color:#fff;}
+#lane7 .lane-tag{background:#ED1C24;color:#fff;}
+#lane32 .lane-tag{background:#F26522;color:#1a0c03;}
+.lane.active .lane-hint{color:var(--amd-red);font-weight:700;}
+
+/* Try-it-live */
+.tryit{display:flex;flex-direction:column;gap:12px;}
+.tryit-form{display:flex;gap:8px;}
+.tryit-input{flex:1;font-family:var(--body);font-size:15px;color:var(--text);
+  background:#0e131a;border:1px solid var(--border);border-radius:10px;padding:13px 15px;outline:none;}
+.tryit-input:focus{border-color:var(--amd-red);box-shadow:0 0 0 2px rgba(237,28,36,.18);}
+.tryit-input::placeholder{color:var(--muted);}
+.tryit-input:disabled{opacity:.6;}
+.tryit-btn{font-family:var(--heading);font-weight:700;font-size:14px;color:#fff;cursor:pointer;
+  background:var(--amd-red);border:none;border-radius:10px;padding:0 20px;transition:background .2s;white-space:nowrap;}
+.tryit-btn:hover{background:var(--amd-red-hover);}
+.tryit-btn:disabled{background:#3a434f;cursor:default;}
+.tryit-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.tryit-chip{font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;
+  background:#0e131a;border:1px solid var(--border);border-radius:999px;padding:5px 11px;transition:all .2s;}
+.tryit-chip:hover{border-color:var(--amd-red);color:var(--text);}
+.tryit-status{font-family:var(--body);font-size:12.5px;color:var(--muted);min-height:18px;}
+.tryit-status b{color:var(--text);font-weight:600;}
+.tryit-status .cd{font-family:var(--mono);color:var(--amd-red);font-weight:700;}
+.tryit-decision{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:30px;
+  font-family:var(--mono);font-size:13px;color:var(--muted);}
+.tryit-pill{font-family:var(--heading);font-weight:800;font-size:13px;color:#fff;border-radius:7px;padding:3px 11px;}
+.tryit-pill.t2b{background:#007C97;}
+.tryit-pill.t9b{background:#ED1C24;}
+.tryit-pill.t27b{background:#F26522;color:#1a0c03;}
+.tryit-pill.tq{background:#3a434f;}
+.tryit-conf{color:var(--ok);font-weight:700;}
+.tryit-sig{color:var(--muted);}
+.tryit-answer{font-family:var(--body);font-size:14.5px;line-height:1.55;color:#dbe4ec;
+  background:#0e131a;border:1px solid var(--border);border-radius:10px;padding:14px 16px;
+  min-height:120px;max-height:40vh;overflow-y:auto;white-space:pre-wrap;word-break:break-word;}
+.tryit-answer.placeholder{color:var(--muted);}
+.tryit-answer .caret{display:inline-block;width:8px;height:16px;background:var(--amd-red);
+  margin-left:1px;vertical-align:text-bottom;animation:blink 1s step-start infinite;}
+@keyframes blink{50%{opacity:0;}}
+.tryit-meta{font-family:var(--mono);font-size:11.5px;color:var(--muted);min-height:14px;}
+.tryit-meta b{color:var(--ok);}
+.hero{font-family:var(--heading);font-weight:800;font-size:22px;letter-spacing:.3px;margin:0 0 4px;}
+.hero-sub{color:var(--muted);font-size:13px;margin-bottom:16px;line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="glow"></div>
+
+<header class="hdr">
+  <div class="logo" aria-label="AMD">
+    <svg viewBox="0 0 800 190.803" role="img" aria-label="AMD" xmlns="http://www.w3.org/2000/svg"><path fill="#ffffff" d="M187.888 178.122H143.52l-13.573-32.738H56.003l-12.366 32.738H0L66.667 12.776h47.761zM91.155 52.286L66.912 116.53h50.913zm257.901-39.51h35.88v165.346h-41.219V74.842l-44.608 51.877h-6.301l-44.605-51.877V178.12h-41.219V12.776h35.88l53.092 61.336zm140.319 0c60.364 0 91.391 37.573 91.391 82.909 0 47.517-30.058 82.437-96 82.437h-68.369V12.776zm-31.762 135.041h26.906c41.457 0 53.823-28.129 53.823-52.377 0-28.368-15.276-52.363-54.308-52.363h-26.422v104.74zm205.156-95.836L610.797 0H800v189.21l-51.972-51.975V51.981zm-.061 10.416L609.2 115.903v74.899h74.889l53.505-53.506h-74.886z"/></svg>
+  </div>
+  <div class="hdr-txt">
+    <span class="hdr-ev">Try it live</span>
+    <span class="hdr-sub">Type a prompt &middot; watch it route to the right-sized model &middot; Instinct&trade; MI300X &middot; ROCm&trade;</span>
+  </div>
+  <div class="hdr-spacer"></div>
+  <a class="back-cta" href="/" id="backCta">&larr; Back to dashboard</a>
+  <div class="sov"><span class="dot"></span><span>LOCAL ONLY &middot; 0 cloud calls</span></div>
+</header>
+
+<div class="wrap">
+  <!-- LEFT: live metrics (kept from the main board) -->
+  <div class="col-left">
+    <div class="metrics">
+      <div class="m"><div class="k">Throughput (vLLM live)</div><div class="v" id="mTok1" style="color:var(--acc)">0<small> tok/s</small></div><div class="u">server /metrics rate</div></div>
+      <div class="m"><div class="k">Throughput (smoothed)</div><div class="v" id="mTok2" style="color:var(--ok)">0<small> tok/s</small></div><div class="u">rolling average</div></div>
+      <div class="m"><div class="k">Cloud calls</div><div class="v" id="mCloud" style="color:var(--ok)">0</div><div class="u">nothing leaves the GPU</div></div>
+      <div class="m"><div class="k">GPUs</div><div class="v">1<small> &times; MI300X</small></div><div class="u">192 GB HBM3</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Single MI300X <span class="badge live dot" id="gpuBadge">LIVE &middot; rocm-smi</span></h3>
+      <div class="gbar-wrap">
+        <div class="gbar-lbl"><span>HBM3 memory</span><b id="memTxt">&mdash;</b></div>
+        <div class="gbar mem"><i id="memBar" style="width:0%"></i></div>
+      </div>
+      <div class="gbar-wrap">
+        <div class="gbar-lbl"><span>Compute utilisation</span><b id="utilTxt">&mdash;</b></div>
+        <div class="gbar"><i id="utilBar" style="width:0%"></i></div>
+      </div>
+      <div class="gstats">
+        <div class="m" style="flex:1"><div class="k">Board power</div><div class="v" id="pwrTxt">&mdash;</div><div class="u">live draw</div></div>
+        <div class="m" style="flex:1"><div class="k">Junction temp</div><div class="v" id="tempTxt">&mdash;</div><div class="u">under load</div></div>
+      </div>
+      <p class="caption">While you drive the demo the swarm is paused, so the whole MI300X serves your prompt.</p>
+    </div>
+
+    <div class="panel">
+      <h3>Where it routed <span class="badge live dot" id="routeBadge">LIVE &middot; vLLM-SR</span></h3>
+      <div class="route-lanes">
+        <div class="lane" id="lane05"><span class="lane-tag">2B</span><span class="lane-nm">Qwen3.5-2B</span><span class="lane-hint">trivial</span></div>
+        <div class="lane" id="lane7"><span class="lane-tag">9B</span><span class="lane-nm">Qwen3.5-9B</span><span class="lane-hint">default</span></div>
+        <div class="lane" id="lane32"><span class="lane-tag">27B</span><span class="lane-nm">Qwen3.8-27B</span><span class="lane-hint">hard reasoning</span></div>
+      </div>
+      <p class="caption">The router picks the model on the CPU before a single GPU token is generated.</p>
+    </div>
+  </div>
+
+  <!-- RIGHT: the interactive panel -->
+  <div class="col-right">
+    <div class="panel">
+      <p class="hero">Ask anything.</p>
+      <p class="hero-sub">Your prompt is classified on the CPU, routed to the right-sized model, and answered live on this single MI300X. Nothing leaves the GPU.</p>
+      <div class="tryit">
+        <form class="tryit-form" id="tryForm" autocomplete="off">
+          <input class="tryit-input" id="tryInput" type="text" maxlength="400" disabled
+            placeholder="Preparing a clean GPU window&hellip;">
+          <button class="tryit-btn" id="tryBtn" type="submit" disabled>Route it</button>
+        </form>
+        <div class="tryit-chips" id="tryChips"></div>
+        <div class="tryit-status" id="tryStatus">Pausing the swarm so the GPU is free for your prompt&hellip;</div>
+        <div class="tryit-decision" id="tryDecision"><span style="color:var(--muted)">The router picks the model before a single token is generated.</span></div>
+        <div class="tryit-answer placeholder" id="tryAnswer">The chosen model&rsquo;s answer streams here, live from this MI300X.</div>
+        <div class="tryit-meta" id="tryMeta"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- Live metrics: GPU (rocm-smi) + throughput (vLLM /metrics) ---------- */
+async function pollGpu(){
+  try{const r=await fetch('/api/gpu');const j=await r.json();const b=document.getElementById('gpuBadge');
+    if(j.ok){
+      const totG=j.vram_total_gb||192,usedG=j.vram_used_gb||0;
+      document.getElementById('memBar').style.width=(usedG/totG*100)+'%';
+      document.getElementById('memTxt').textContent=usedG+' / '+totG+' GB';
+      document.getElementById('utilBar').style.width=(j.util_pct||0)+'%';
+      document.getElementById('utilTxt').textContent=(j.util_pct||0)+'%';
+      document.getElementById('pwrTxt').textContent=(j.power_w!=null)?(Math.round(j.power_w)+' W'):'\u2014';
+      document.getElementById('tempTxt').textContent=(j.temp_c!=null)?(Math.round(j.temp_c)+' \u00b0C'):'\u2014';
+      b.className='badge live dot';b.textContent='LIVE \u00b7 amdgpu';
+    }else{b.className='badge sim dot';b.textContent='gpu n/a';}
+  }catch(e){}
+}
+pollGpu();setInterval(pollGpu,2500);
+
+let ema=null, lastNonZero=0;
+async function pollThru(){
+  try{
+    const r=await fetch('/api/vllm_throughput');const j=await r.json();
+    if(j.ok && j.tok_s!=null){
+      const v=j.tok_s;
+      document.getElementById('mTok1').innerHTML=Math.round(v).toLocaleString()+'<small> tok/s</small>';
+      if(v>0){ema=(ema==null)?v:(0.4*v+0.6*ema); lastNonZero=ema;}
+      const shown=(v>0)?ema:lastNonZero;
+      document.getElementById('mTok2').innerHTML=Math.round(shown||0).toLocaleString()+'<small> tok/s</small>';
+    }else{
+      document.getElementById('mTok1').innerHTML='&mdash;<small> tok/s</small>';
+    }
+  }catch(e){}
+}
+pollThru();setInterval(pollThru,1500);
+
+/* ---------- Try it live ---------- */
+/* On load this page auto-enters live mode (stops the swarm for a clean GPU
+   window). The "Back to dashboard" button auto-exits live mode (resumes the
+   swarm) before navigating. An inactivity watchdog on the server also resumes
+   the swarm if the booth is left idle. */
+(function(){
+  const form=document.getElementById('tryForm');
+  const input=document.getElementById('tryInput');
+  const btn=document.getElementById('tryBtn');
+  const dec=document.getElementById('tryDecision');
+  const ans=document.getElementById('tryAnswer');
+  const meta=document.getElementById('tryMeta');
+  const chipsBox=document.getElementById('tryChips');
+  const statusEl=document.getElementById('tryStatus');
+  const backCta=document.getElementById('backCta');
+  if(!form) return;
+  const CHIPS=[
+    "hello there, thanks!",
+    "What is the capital of France?",
+    "Summarize what AMD ROCm is in one sentence.",
+    "A train travels 60 miles in 1.5 hours. What is its average speed?",
+    "Prove step by step that there are infinitely many primes."
+  ];
+  chipsBox.innerHTML=CHIPS.map(c=>`<span class="tryit-chip">${c.replace(/</g,'&lt;')}</span>`).join('');
+  chipsBox.querySelectorAll('.tryit-chip').forEach((el,i)=>{
+    el.addEventListener('click',()=>{ if(!liveReady) return; input.value=CHIPS[i]; input.focus(); });
+  });
+  function tierOf(model){
+    const m=(''+(model||'')).toLowerCase();
+    if(m.includes('27b')||m.includes('32b'))return{cls:'t27b',tag:'27B',hint:'hard / reasoning',lane:'lane32'};
+    if(m.includes('9b')||m.includes('7b'))return{cls:'t9b',tag:'9B',hint:'standard',lane:'lane7'};
+    if(m.includes('2b')||m.includes('0.5b'))return{cls:'t2b',tag:'2B',hint:'fast / trivial',lane:'lane05'};
+    return{cls:'tq',tag:'?',hint:'',lane:null};
+  }
+  function lightLane(id){
+    ['lane05','lane7','lane32'].forEach(l=>document.getElementById(l).classList.toggle('active', l===id));
+  }
+
+  let liveReady=false, busy=false, cdTimer=null, pollTimer=null, exiting=false;
+  function setFormEnabled(on){ input.disabled=!on; btn.disabled=!on||busy; }
+  function stopTimers(){ if(cdTimer){clearInterval(cdTimer);cdTimer=null;} if(pollTimer){clearTimeout(pollTimer);pollTimer=null;} }
+  function renderStatus(secs){
+    statusEl.innerHTML='<b>Live.</b> Swarm paused, the MI300X is yours. Auto-resumes in <span class="cd">'+secs+'s</span> of no activity.';
+  }
+  function startCountdown(secs){
+    stopTimers(); let s=secs; renderStatus(s);
+    cdTimer=setInterval(()=>{ s-=1; if(s<=0){ goBack(); return; } renderStatus(s); },1000);
+  }
+  async function pingLive(){
+    try{ const r=await fetch('/api/live/ping',{method:'POST'}); const j=await r.json();
+      if(j.live&&liveReady) startCountdown(j.expires_in_s||90); }catch(e){}
+  }
+  async function enterLive(){
+    statusEl.textContent='Pausing the swarm and clearing the GPU\u2026 one moment.';
+    try{ await fetch('/api/live/enter',{method:'POST'}); }catch(e){}
+    (async function pollReady(){
+      try{
+        const r=await fetch('/api/live/state'); const j=await r.json();
+        if(exiting) return;
+        if(j.ready){
+          liveReady=true; setFormEnabled(true);
+          input.placeholder='Type any prompt and press Route it\u2026';
+          input.focus(); startCountdown(j.expires_in_s||90);
+        }else{ pollTimer=setTimeout(pollReady,1000); }
+      }catch(e){ pollTimer=setTimeout(pollReady,1500); }
+    })();
+  }
+  async function exitLive(){
+    liveReady=false; exiting=true; stopTimers(); setFormEnabled(false);
+    try{ await fetch('/api/live/exit',{method:'POST'}); }catch(e){}
+  }
+  // Back button: auto-exit live mode (resume swarm), then navigate home.
+  async function goBack(){
+    if(exiting){ window.location.href='/'; return; }
+    statusEl.textContent='Resuming the swarm\u2026';
+    try{ navigator.sendBeacon && navigator.sendBeacon('/api/live/exit'); }catch(e){}
+    await exitLive();
+    window.location.href='/';
+  }
+  backCta.addEventListener('click',(e)=>{ e.preventDefault(); goBack(); });
+  // Safety net: if the page is closed/navigated away, resume the swarm.
+  window.addEventListener('pagehide',()=>{ try{ navigator.sendBeacon && navigator.sendBeacon('/api/live/exit'); }catch(e){} });
+
+  async function run(prompt){
+    if(busy||!liveReady) return;
+    busy=true; btn.disabled=true; btn.textContent='Routing\u2026';
+    pingLive();
+    dec.innerHTML='<span style="color:var(--muted)">classifying on the CPU\u2026</span>';
+    ans.className='tryit-answer placeholder'; ans.textContent='waiting for the model\u2026';
+    meta.textContent='';
+    let acc='';
+    try{
+      const resp=await fetch('/api/route_answer?prompt='+encodeURIComponent(prompt));
+      if(!resp.ok||!resp.body) throw new Error('no stream');
+      const reader=resp.body.getReader();
+      const td=new TextDecoder();
+      let buf='';
+      while(true){
+        const {value,done}=await reader.read();
+        if(done) break;
+        buf+=td.decode(value,{stream:true});
+        let idx;
+        while((idx=buf.indexOf('\n\n'))>=0){
+          const frame=buf.slice(0,idx); buf=buf.slice(idx+2);
+          let ev='message', data='';
+          frame.split('\n').forEach(l=>{
+            if(l.startsWith('event:'))ev=l.slice(6).trim();
+            else if(l.startsWith('data:'))data+=l.slice(5).trim();
+          });
+          if(!data) continue;
+          let j; try{j=JSON.parse(data);}catch(e){continue;}
+          if(ev==='decision'){
+            const t=tierOf(j.model); lightLane(t.lane);
+            const conf=(j.confidence!=null&&j.confidence>0)?(' &middot; <span class="tryit-conf">'+(j.confidence*100).toFixed(0)+'% confident</span>'):'';
+            const sig=(j.signals&&j.signals.length)?(' &middot; <span class="tryit-sig">'+j.signals.join(', ')+'</span>'):'';
+            dec.innerHTML='routed to <span class="tryit-pill '+t.cls+'">'+t.tag+'</span> <b style="color:var(--text)">'+(j.model||'?')+'</b> <span style="color:var(--muted)">('+t.hint+')</span>'+conf+sig;
+            meta.innerHTML='decided in <b>'+(j.route_ms!=null?j.route_ms:'?')+' ms</b> on the CPU &middot; 0 GPU tokens';
+            ans.className='tryit-answer'; ans.innerHTML='<span class="caret"></span>';
+          }else if(ev==='token'){
+            if(j.thinking){
+              ans.className='tryit-answer placeholder';
+              ans.innerHTML='<i>the model is thinking\u2026</i><span class="caret"></span>';
+            }else{
+              acc=j.text||acc;
+              ans.className='tryit-answer';
+              ans.innerHTML=(acc.replace(/</g,'&lt;'))+'<span class="caret"></span>';
+              ans.scrollTop=ans.scrollHeight;
+            }
+          }else if(ev==='done'){
+            ans.innerHTML=(j.answer||acc||'(no answer)').replace(/</g,'&lt;');
+            const ttft=j.ttft_ms!=null?('first token <b>'+j.ttft_ms+' ms</b> &middot; '):'';
+            meta.innerHTML+=' &nbsp;|&nbsp; '+ttft+(j.tokens||0)+' tokens in <b>'+((j.total_ms||0)/1000).toFixed(1)+'s</b> &middot; served by '+(j.served_by||'?');
+          }else if(ev==='error'){
+            ans.className='tryit-answer placeholder';
+            ans.textContent=(j.stage==='answer'?'The model was busy generating; try again.':'Router unavailable; try again.');
+            meta.textContent=j.error||'';
+          }
+        }
+      }
+    }catch(e){
+      ans.className='tryit-answer placeholder'; ans.textContent='Could not reach the router. Try again.';
+    }finally{
+      busy=false; btn.textContent='Route it';
+      btn.disabled=!liveReady;
+      pingLive();
+    }
+  }
+  form.addEventListener('submit',(e)=>{
+    e.preventDefault();
+    if(!liveReady) return;
+    const p=input.value.trim();
+    if(p) run(p);
+  });
+
+  enterLive();  // auto-start the clean window on page load
+})();
+</script>
+</body>
+</html>

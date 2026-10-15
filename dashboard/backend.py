@@ -38,6 +38,17 @@ def index():
     return resp
 
 
+@app.route("/live")
+def live_page():
+    # The dedicated "Try it live" page (interactive prompt routing + the live
+    # metrics). Same no-cache policy as the main board.
+    resp = send_from_directory(BASE, "live.html")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.route("/api/health")
 def health():
     import urllib.request
