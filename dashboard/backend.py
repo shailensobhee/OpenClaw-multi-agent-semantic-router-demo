@@ -369,6 +369,169 @@ def route_samples():
     return jsonify({"ok": True, "samples": ROUTE_SAMPLES, "model": ROUTER_MODEL})
 
 
+# Router management API (the classify endpoint) gives the routing DECISION
+# instantly, with zero token generation, even while the GPU is saturated by the
+# loadgen. The OpenAI chat entrypoint (ROUTER_URL) then streams the real answer.
+ROUTER_CLASSIFY_URL = os.environ.get("ROUTER_CLASSIFY_URL", "http://127.0.0.1:8080")
+
+
+def _clean_final(text):
+    """Strip Harmony/Glimmer reasoning-channel scaffolding, keeping only the
+    user-facing answer. Same logic the swarm uses so the booth sees clean text.
+    """
+    if not text:
+        return text
+    t = text
+    # Qwen3 thinking models emit chain-of-thought then the answer after a
+    # </think> tag. Prefer everything after the LAST </think>.
+    if "</think>" in t:
+        t = t.rsplit("</think>", 1)[1]
+    # Harmony/Glimmer channel markers (used by the swarm's agent-exec path).
+    m = list(re.finditer(r"assistant\s+to=user\s*", t))
+    if m:
+        t = t[m[-1].end():]
+    else:
+        m2 = list(re.finditer(r"(?:^|\n)\s*(?:assistant|final)\b[:>]?\s*", t))
+        if m2:
+            t = t[m2[-1].end():]
+    # Drop any stray leading <think> opener if the close never arrived.
+    t = re.sub(r"^\s*<think>\s*", "", t)
+    t = re.sub(r"^\s*to=self\b.*?(?:\n|$)", "", t, count=1)
+    return t.strip()
+
+
+def _classify(prompt, timeout=8):
+    """Ask the router's management classify API for the routing decision only.
+    Returns (decision, model, confidence, signals, latency_ms) or raises."""
+    import urllib.request
+    body = json.dumps({"text": prompt}).encode()
+    req = urllib.request.Request(
+        f"{ROUTER_CLASSIFY_URL}/api/v1/diagnostics/classify/intent",
+        data=body, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        d = json.loads(r.read().decode())
+    cls = d.get("classification", {}) or {}
+    sig = d.get("matched_signals", {}) or {}
+    flat = []
+    for v in sig.values():
+        flat.extend(v if isinstance(v, list) else [v])
+    return (d.get("routing_decision"),
+            d.get("recommended_model"),
+            cls.get("confidence"),
+            flat,
+            cls.get("processing_time_ms"))
+
+
+@app.route("/api/route_answer")
+def route_answer():
+    """Live human-prompt routing + answer, streamed as Server-Sent Events.
+
+    A booth visitor types a prompt; this endpoint shows, in real time:
+      event: decision -> the REAL routing decision (model, tier, confidence,
+                         matched signals) from the router's classify API. This
+                         is instant (~50ms) and needs zero GPU generation.
+      event: token    -> the chosen model's answer, streamed token by token
+                         through the Semantic Router (which routes to the SAME
+                         model the decision picked).
+      event: done     -> final timing (route latency, time-to-first-token,
+                         total, token count).
+      event: error    -> honest failure if the router or a backend is down.
+
+    Nothing is simulated. Query param: prompt=<text> (required).
+    """
+    import urllib.request
+    prompt = (request.args.get("prompt", "") or "").strip()
+
+    def sse(event, data):
+        return "event: %s\ndata: %s\n\n" % (event, json.dumps(data))
+
+    def generate():
+        if not prompt:
+            yield sse("error", {"error": "empty prompt"})
+            return
+        # 1) INSTANT routing decision (no generation).
+        t0 = time.time()
+        try:
+            decision, model, conf, signals, class_ms = _classify(prompt)
+        except Exception as e:
+            yield sse("error", {"error": "classify failed: %s" % e.__class__.__name__,
+                                 "stage": "decision"})
+            return
+        route_ms = round((time.time() - t0) * 1000, 1)
+        yield sse("decision", {
+            "prompt": prompt, "decision": decision, "model": model,
+            "confidence": conf, "signals": signals,
+            "classify_ms": class_ms, "route_ms": route_ms,
+            "source": "router classify API (live)",
+        })
+
+        # 2) STREAM the real answer through the Semantic Router. We pin the model
+        # the router just selected so the streamed answer matches the decision
+        # the visitor saw, even if the classifier is probabilistic at the margin.
+        body = json.dumps({
+            "model": model or ROUTER_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": int(os.environ.get("ROUTE_ANSWER_MAX_TOKENS", "160")),
+            "temperature": 0.3,
+            "stream": True,
+            # Qwen3 models default to "thinking" mode and emit a chain-of-thought
+            # scratchpad (<think>…</think> or a "Thinking Process:" preamble) ahead
+            # of the answer. At a live booth we want the clean answer only, so turn
+            # thinking off in the chat template. Belt-and-suspenders: _clean_final
+            # still strips any </think> block if a model ignores this.
+            "chat_template_kwargs": {"enable_thinking": False},
+        }).encode()
+        req = urllib.request.Request(
+            f"{ROUTER_URL}/v1/chat/completions", data=body,
+            headers={"Content-Type": "application/json"}, method="POST")
+        g0 = time.time()
+        ttft = None
+        raw = ""
+        n = 0
+        try:
+            with urllib.request.urlopen(req, timeout=int(os.environ.get("ROUTE_ANSWER_TIMEOUT_S", "60"))) as r:
+                served = r.headers.get("x-vsr-selected-model") or model
+                for line in r:
+                    s = line.decode("utf-8", "ignore").strip()
+                    if not s.startswith("data:"):
+                        continue
+                    payload = s[5:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        delta = json.loads(payload)["choices"][0]["delta"].get("content", "")
+                    except Exception:
+                        delta = ""
+                    if not delta:
+                        continue
+                    if ttft is None:
+                        ttft = round((time.time() - g0) * 1000, 1)
+                    raw += delta
+                    n += 1
+                    # While the model is still in its <think> block there is no
+                    # user-facing answer yet: tell the UI it's thinking instead of
+                    # streaming raw chain-of-thought onto the booth wall. Once the
+                    # answer phase starts, stream the cleaned running text.
+                    cleaned = _clean_final(raw)
+                    thinking = ("</think>" not in raw) and (
+                        raw.lstrip().startswith("<think>")
+                        or "Thinking Process" in raw[:40]
+                        or cleaned == "" )
+                    yield sse("token", {"delta": delta, "text": cleaned,
+                                        "thinking": thinking})
+            total_ms = round((time.time() - g0) * 1000, 1)
+            yield sse("done", {
+                "served_by": served, "ttft_ms": ttft, "total_ms": total_ms,
+                "tokens": n, "answer": _clean_final(raw),
+            })
+        except Exception as e:
+            yield sse("error", {"error": "generation failed: %s" % e.__class__.__name__,
+                                 "stage": "answer", "model": model})
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.route("/api/loadgen")
 def loadgen():
     """Live stats from the GPU-saturation load generator (loadgen.py)."""

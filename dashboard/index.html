@@ -64,6 +64,41 @@
   display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
 .route-meta b{color:var(--ok);}
 @keyframes spin{to{transform:rotate(360deg);}}
+
+/* Try-it-live: human prompt -> routing + streamed answer */
+.tryit{display:flex;flex-direction:column;gap:10px;}
+.tryit-form{display:flex;gap:8px;}
+.tryit-input{flex:1;font-family:var(--body);font-size:13px;color:var(--text);
+  background:#0e131a;border:1px solid var(--border);border-radius:9px;padding:10px 12px;outline:none;}
+.tryit-input:focus{border-color:var(--amd-red);box-shadow:0 0 0 2px rgba(237,28,36,.18);}
+.tryit-input::placeholder{color:var(--muted);}
+.tryit-btn{font-family:var(--heading);font-weight:700;font-size:13px;color:#fff;cursor:pointer;
+  background:var(--amd-red);border:none;border-radius:9px;padding:0 16px;transition:background .2s;white-space:nowrap;}
+.tryit-btn:hover{background:var(--amd-red-hover);}
+.tryit-btn:disabled{background:#3a434f;cursor:default;}
+.tryit-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.tryit-chip{font-family:var(--mono);font-size:10.5px;color:var(--muted);cursor:pointer;
+  background:#0e131a;border:1px solid var(--border);border-radius:999px;padding:4px 10px;transition:all .2s;}
+.tryit-chip:hover{border-color:var(--amd-red);color:var(--text);}
+.tryit-decision{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:30px;
+  font-family:var(--mono);font-size:12px;color:var(--muted);}
+.tryit-pill{font-family:var(--heading);font-weight:800;font-size:12px;color:#fff;
+  border-radius:7px;padding:3px 10px;}
+.tryit-pill.t2b{background:#007C97;}
+.tryit-pill.t9b{background:#ED1C24;}
+.tryit-pill.t27b{background:#F26522;color:#1a0c03;}
+.tryit-pill.tq{background:#3a434f;}
+.tryit-conf{color:var(--ok);font-weight:700;}
+.tryit-sig{color:var(--muted);}
+.tryit-answer{font-family:var(--body);font-size:13px;line-height:1.5;color:#dbe4ec;
+  background:#0e131a;border:1px solid var(--border);border-radius:9px;padding:12px 14px;
+  min-height:46px;max-height:220px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;}
+.tryit-answer.placeholder{color:var(--muted);}
+.tryit-answer .caret{display:inline-block;width:7px;height:14px;background:var(--amd-red);
+  margin-left:1px;vertical-align:text-bottom;animation:blink 1s step-start infinite;}
+@keyframes blink{50%{opacity:0;}}
+.tryit-meta{font-family:var(--mono);font-size:10.5px;color:var(--muted);min-height:14px;}
+.tryit-meta b{color:var(--ok);}
 html,body{margin:0;padding:0;height:100%;}
 body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hidden;position:relative;}
 .glow{position:fixed;inset:0;z-index:0;pointer-events:none;
@@ -280,6 +315,21 @@ body.resizing-ns{cursor:ns-resize;user-select:none;}
         </div>
       </div>
       <div class="route-meta"><span id="routeMeta">routing on the CPU &middot; 0 GPU VRAM</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>Try it live <span class="badge live dot" id="tryBadge">LIVE &middot; you type, it routes</span></h3>
+      <div class="tryit">
+        <form class="tryit-form" id="tryForm" autocomplete="off">
+          <input class="tryit-input" id="tryInput" type="text" maxlength="400"
+            placeholder="Type any prompt and watch it route to the right-sized model&hellip;">
+          <button class="tryit-btn" id="tryBtn" type="submit">Route it</button>
+        </form>
+        <div class="tryit-chips" id="tryChips"></div>
+        <div class="tryit-decision" id="tryDecision"><span style="color:var(--muted)">The router picks the model before a single token is generated.</span></div>
+        <div class="tryit-answer placeholder" id="tryAnswer">The chosen model&rsquo;s answer streams here, live from this MI300X.</div>
+        <div class="tryit-meta" id="tryMeta"></div>
+      </div>
     </div>
 
     <div class="panel">
@@ -638,6 +688,107 @@ connectLogs();
   grip.addEventListener('dblclick',()=>{ apply(DEF); localStorage.setItem(KEY,DEF); });
   window.addEventListener('resize',()=>{ const h=parseInt(getComputedStyle(root).getPropertyValue('--console-h'),10); if(!isNaN(h)) apply(h); });
 })();
+/* ---------- Try it live: human prompt -> routing + streamed answer ---------- */
+/* Streams /api/route_answer (SSE). First a 'decision' event lights the tier the
+   router picked (instant, no GPU), then 'token' events stream the chosen model's
+   real answer, then 'done' reports timing. Nothing is simulated. */
+(function(){
+  const form=document.getElementById('tryForm');
+  const input=document.getElementById('tryInput');
+  const btn=document.getElementById('tryBtn');
+  const dec=document.getElementById('tryDecision');
+  const ans=document.getElementById('tryAnswer');
+  const meta=document.getElementById('tryMeta');
+  const chipsBox=document.getElementById('tryChips');
+  if(!form) return;
+  const CHIPS=[
+    "hello there, thanks!",
+    "What is the capital of France?",
+    "Summarize what AMD ROCm is in one sentence.",
+    "A train travels 60 miles in 1.5 hours. What is its average speed?",
+    "Prove step by step that there are infinitely many primes."
+  ];
+  chipsBox.innerHTML=CHIPS.map(c=>`<span class="tryit-chip">${c.replace(/</g,'&lt;')}</span>`).join('');
+  chipsBox.querySelectorAll('.tryit-chip').forEach((el,i)=>{
+    el.addEventListener('click',()=>{input.value=CHIPS[i];input.focus();});
+  });
+  function tierOf(model){
+    const m=(''+(model||'')).toLowerCase();
+    if(m.includes('27b')||m.includes('32b'))return{cls:'t27b',tag:'27B',hint:'hard / reasoning'};
+    if(m.includes('9b')||m.includes('7b'))return{cls:'t9b',tag:'9B',hint:'standard'};
+    if(m.includes('2b')||m.includes('0.5b'))return{cls:'t2b',tag:'2B',hint:'fast / trivial'};
+    return{cls:'tq',tag:'?',hint:''};
+  }
+  let busy=false, es=null;
+  async function run(prompt){
+    if(busy) return;
+    busy=true; btn.disabled=true; btn.textContent='Routing\u2026';
+    dec.innerHTML='<span style="color:var(--muted)">classifying on the CPU\u2026</span>';
+    ans.className='tryit-answer placeholder'; ans.textContent='waiting for the model\u2026';
+    meta.textContent='';
+    // Pause the auto-cycling sample visualiser while a human drives it.
+    window.__tryActive=true;
+    let acc='';
+    try{
+      const resp=await fetch('/api/route_answer?prompt='+encodeURIComponent(prompt));
+      if(!resp.ok||!resp.body) throw new Error('no stream');
+      const reader=resp.body.getReader();
+      const td=new TextDecoder();
+      let buf='';
+      while(true){
+        const {value,done}=await reader.read();
+        if(done) break;
+        buf+=td.decode(value,{stream:true});
+        // parse SSE frames separated by blank lines
+        let idx;
+        while((idx=buf.indexOf('\n\n'))>=0){
+          const frame=buf.slice(0,idx); buf=buf.slice(idx+2);
+          let ev='message', data='';
+          frame.split('\n').forEach(l=>{
+            if(l.startsWith('event:'))ev=l.slice(6).trim();
+            else if(l.startsWith('data:'))data+=l.slice(5).trim();
+          });
+          if(!data) continue;
+          let j; try{j=JSON.parse(data);}catch(e){continue;}
+          if(ev==='decision'){
+            const t=tierOf(j.model);
+            const conf=(j.confidence!=null&&j.confidence>0)?(' &middot; <span class="tryit-conf">'+(j.confidence*100).toFixed(0)+'% confident</span>'):'';
+            const sig=(j.signals&&j.signals.length)?(' &middot; <span class="tryit-sig">'+j.signals.join(', ')+'</span>'):'';
+            dec.innerHTML='routed to <span class="tryit-pill '+t.cls+'">'+t.tag+'</span> <b style="color:var(--text)">'+(j.model||'?')+'</b> <span style="color:var(--muted)">('+t.hint+')</span>'+conf+sig;
+            meta.innerHTML='decided in <b>'+(j.route_ms!=null?j.route_ms:'?')+' ms</b> on the CPU &middot; 0 GPU tokens';
+            ans.className='tryit-answer'; ans.innerHTML='<span class="caret"></span>';
+          }else if(ev==='token'){
+            if(j.thinking){
+              ans.className='tryit-answer placeholder';
+              ans.innerHTML='<i>the model is thinking\u2026</i><span class="caret"></span>';
+            }else{
+              acc=j.text||acc;
+              ans.className='tryit-answer';
+              ans.innerHTML=(acc.replace(/</g,'&lt;'))+'<span class="caret"></span>';
+              ans.scrollTop=ans.scrollHeight;
+            }
+          }else if(ev==='done'){
+            ans.innerHTML=(j.answer||acc||'(no answer)').replace(/</g,'&lt;');
+            const ttft=j.ttft_ms!=null?('first token <b>'+j.ttft_ms+' ms</b> &middot; '):'';
+            meta.innerHTML+=' &nbsp;|&nbsp; '+ttft+(j.tokens||0)+' tokens in <b>'+((j.total_ms||0)/1000).toFixed(1)+'s</b> &middot; served by '+(j.served_by||'?');
+          }else if(ev==='error'){
+            ans.className='tryit-answer placeholder';
+            ans.textContent=(j.stage==='answer'?'The model was busy generating; try again.':'Router unavailable; try again.');
+            meta.textContent=j.error||'';
+          }
+        }
+      }
+    }catch(e){
+      ans.className='tryit-answer placeholder'; ans.textContent='Could not reach the router. Try again.';
+    }finally{
+      busy=false; btn.disabled=false; btn.textContent='Route it';
+      window.__tryActive=false;
+    }
+  }
+  form.addEventListener('submit',(e)=>{
+    e.preventDefault();
+    const p=input.value.trim();
+    if(p) run(p);
+  });
+})();
 </script>
-</body>
-</html>
