@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# dashboard runtime state (written live, never committed)
+dashboard/state.json
+dashboard/loadgen.json
+dashboard/loadgen.control
+dashboard/accuracy.json
+dashboard/benchmark.json

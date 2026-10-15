@@ -135,6 +135,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);overflow:hid
   box-shadow:0 0 18px rgba(237,28,36,.25);transition:background .2s,transform .12s,box-shadow .2s;}
 .tryit-cta:hover{background:var(--amd-red-hover);box-shadow:0 0 26px rgba(237,28,36,.4);transform:translateY(-1px);}
 .tryit-cta:active{transform:translateY(0);}
+.tryit-cta.alt{background:#1a212b;border:1px solid var(--border);box-shadow:none;color:var(--text);}
+.tryit-cta.alt:hover{background:#242e3a;border-color:var(--amd-red);box-shadow:0 0 18px rgba(237,28,36,.2);color:#fff;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
 
 .wrap{position:relative;z-index:1;display:grid;grid-template-columns:1.5fr 1fr;gap:18px;
@@ -292,6 +294,7 @@ body.resizing-ns{cursor:ns-resize;user-select:none;}
     <span class="hdr-sub">Sovereign multi-agent AI &middot; Instinct&trade; MI300X &middot; ROCm&trade; &middot; served by vLLM</span>
   </div>
   <div class="hdr-spacer"></div>
+  <a class="tryit-cta alt" href="/playground" id="benchCta">Benchmark playground</a>
   <a class="tryit-cta" href="/live" id="tryitCta">Try it live &rarr;</a>
   <div class="sov"><span class="dot"></span><span>LOCAL ONLY &middot; 0 cloud calls</span></div>
 </header>

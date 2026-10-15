@@ -49,6 +49,16 @@ def live_page():
     return resp
 
 
+@app.route("/playground")
+def playground_page():
+    # The benchmark playground: compare GPU perf with semantic routing ON vs OFF.
+    resp = send_from_directory(BASE, "playground.html")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.route("/api/health")
 def health():
     import urllib.request
@@ -894,6 +904,98 @@ def live_state():
         d = max(0, round(_live["deadline"] - time.time())) if on else 0
     return jsonify({"ok": True, "live": on, "phase": phase, "expires_in_s": d,
                     "ready": on and phase == "ready"})
+
+
+# =====================================================================
+# Benchmark playground: compare GPU perf with semantic routing ON vs OFF.
+# ON  = every prompt through the Semantic Router (right-sized 2B/9B/27B).
+# OFF = every prompt forced to the single 27B model (the "always big" baseline).
+# The runner (benchmarks/playground.py) streams both paths, measures latency /
+# TTFT / tokens / throughput, and writes incremental progress to BENCH_STATE so
+# the page can draw a live progress bar and charts. Like the accuracy harness it
+# needs a clean GPU window, so it shares the same ref-counted load coordinator.
+# =====================================================================
+BENCH_STATE = Path(os.environ.get("BENCH_STATE", str(BASE / "benchmark.json")))
+BENCH_SCRIPT = Path(os.environ.get("BENCH_SCRIPT", str(BASE.parent / "benchmarks" / "playground.py")))
+BENCH_SET = Path(os.environ.get("BENCH_SET", str(BASE.parent / "benchmarks" / "accuracy_set.json")))
+
+_bench_lock = threading.Lock()
+_bench_running = {"on": False, "phase": "idle", "started": 0.0}
+
+
+def _run_bench_job(limit, repeat):
+    import time as _t
+    try:
+        _bench_running["phase"] = "pausing load"
+        _load_pause("benchmark")
+        _t.sleep(float(os.environ.get("BENCH_DRAIN_S", "14")))  # drain inflight so the window is clean
+        _bench_running["phase"] = "measuring"
+        env = dict(os.environ)
+        env["BENCH_STATE"] = str(BENCH_STATE)
+        env["BENCH_SET"] = str(BENCH_SET)
+        env.setdefault("ROUTER_URL", ROUTER_URL)
+        cmd = [os.environ.get("PYTHON", "python3"), str(BENCH_SCRIPT)]
+        if limit:
+            cmd += ["--limit", str(limit)]
+        if repeat and repeat > 1:
+            cmd += ["--repeat", str(repeat)]
+        subprocess.run(cmd, env=env, capture_output=True, text=True,
+                       timeout=int(os.environ.get("BENCH_TIMEOUT_S", "900")))
+    except Exception as e:
+        try:
+            BENCH_STATE.write_text(json.dumps({"ok": False, "updated": _t.time(),
+                                               "phase": "error", "running": False,
+                                               "error": f"{e.__class__.__name__}: {e}"}, indent=2))
+        except Exception:
+            pass
+    finally:
+        _bench_running["phase"] = "resuming load"
+        _load_resume("benchmark")
+        _bench_running["on"] = False
+        _bench_running["phase"] = "idle"
+
+
+@app.route("/api/benchmark")
+def benchmark():
+    """Latest cached benchmark results (routing ON vs OFF)."""
+    running = _bench_running["on"]
+    try:
+        data = json.loads(BENCH_STATE.read_text())
+        data["age_s"] = round(time.time() - data.get("updated", 0), 1)
+    except FileNotFoundError:
+        data = {"ok": False, "error": "no run yet", "modes": {}}
+    except Exception as e:
+        data = {"ok": False, "error": f"{e.__class__.__name__}"}
+    # The live job status is authoritative over a half-written file.
+    if running:
+        data["running"] = True
+        data["phase"] = _bench_running["phase"]
+    return jsonify(data)
+
+
+@app.route("/api/benchmark/run", methods=["POST", "GET"])
+def benchmark_run():
+    """Kick off an on-demand benchmark (pauses load, measures both modes, resumes)."""
+    try:
+        limit = int(request.args.get("limit", "0"))
+    except ValueError:
+        limit = 0
+    try:
+        repeat = int(request.args.get("repeat", "1"))
+    except ValueError:
+        repeat = 1
+    with _bench_lock:
+        if _bench_running["on"]:
+            return jsonify({"ok": False, "error": "already running",
+                            "phase": _bench_running["phase"]}), 200
+        if not BENCH_SCRIPT.exists():
+            return jsonify({"ok": False, "error": f"runner missing: {BENCH_SCRIPT}"}), 200
+        _bench_running["on"] = True
+        _bench_running["started"] = time.time()
+        _bench_running["phase"] = "starting"
+        threading.Thread(target=_run_bench_job, args=(limit, repeat), daemon=True).start()
+    return jsonify({"ok": True, "started": True,
+                    "note": "pausing swarm+loadgen, measuring both modes, then resuming"})
 
 
 if __name__ == "__main__":

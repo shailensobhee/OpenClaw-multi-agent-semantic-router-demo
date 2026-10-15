@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benchmark playground &middot; Semantic routing ON vs OFF &middot; MI300X</title>
+<style>
+:root{
+  --amd-red:#ed1c24; --amd-red-hover:#c8161d;
+  --bg:#0b0e13; --surface:#13181f; --surface-2:#1a212b; --border:#2a333f;
+  --text:#eef2f6; --muted:#9aa7b4; --ok:#2ecc71; --warn:#f0a020; --acc:#ff7a30;
+  --on:#2ecc71; --off:#ed1c24;
+  --t2b:#007C97; --t9b:#ED1C24; --t27b:#F26522;
+  --heading:"Klavika","Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;min-height:100%;}
+body{background:var(--bg);color:var(--text);font-family:var(--body);position:relative;}
+.glow{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(1100px 600px at 12% -12%, rgba(237,28,36,0.16), transparent 60%),
+    radial-gradient(900px 700px at 100% 0%, rgba(46,204,113,0.06), transparent 55%);}
+
+.hdr{position:relative;z-index:2;display:flex;align-items:center;gap:20px;
+  padding:16px 34px;border-bottom:1px solid var(--border);
+  background:rgba(0,0,0,0.4);backdrop-filter:blur(6px);}
+.logo svg{height:30px;width:auto;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.55));}
+.hdr-txt{display:flex;flex-direction:column;line-height:1.15;}
+.hdr-ev{font-family:var(--heading);font-weight:700;font-size:17px;letter-spacing:.4px;}
+.hdr-sub{color:var(--muted);font-size:12.5px;letter-spacing:.3px;}
+.hdr-spacer{flex:1;}
+.sov{display:flex;align-items:center;gap:10px;padding:8px 16px;border-radius:999px;
+  border:1px solid rgba(46,204,113,.5);background:rgba(46,204,113,.08);font-family:var(--mono);font-size:13px;}
+.sov .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+.back-cta{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:999px;
+  font-family:var(--heading);font-weight:700;font-size:13.5px;letter-spacing:.3px;color:#fff;cursor:pointer;
+  text-decoration:none;background:#2a333f;border:1px solid var(--border);transition:background .2s,transform .12s;}
+.back-cta:hover{background:#353f4c;transform:translateY(-1px);}
+
+.wrap{position:relative;z-index:1;padding:20px 34px 28px;max-width:1500px;margin:0 auto;}
+.intro{display:flex;gap:16px;align-items:stretch;margin-bottom:18px;flex-wrap:wrap;}
+.mode-card{flex:1;min-width:280px;background:linear-gradient(160deg,var(--surface),var(--surface-2));
+  border:1px solid var(--border);border-radius:14px;padding:15px 18px;position:relative;overflow:hidden;}
+.mode-card.on{border-color:rgba(46,204,113,.45);}
+.mode-card.off{border-color:rgba(237,28,36,.45);}
+.mode-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;}
+.mode-card.on::before{background:var(--on);}
+.mode-card.off::before{background:var(--off);}
+.mode-card h4{font-family:var(--heading);font-weight:800;font-size:15px;margin:0 0 6px;display:flex;align-items:center;gap:9px;}
+.mode-card h4 .tog{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;}
+.mode-card.on .tog{color:#06240f;background:var(--on);}
+.mode-card.off .tog{color:#fff;background:var(--off);}
+.mode-card p{color:var(--muted);font-size:12.5px;line-height:1.5;margin:0;}
+.mode-card .tiers{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap;}
+.chip{font-family:var(--heading);font-weight:800;font-size:11px;color:#fff;border-radius:6px;padding:2px 9px;}
+.chip.t2b{background:var(--t2b);}
+.chip.t9b{background:var(--t9b);}
+.chip.t27b{background:var(--t27b);color:#1a0c03;}
+.chip.dim{opacity:.3;}
+
+.ctrlbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px;
+  background:linear-gradient(160deg,var(--surface),var(--surface-2));border:1px solid var(--border);
+  border-radius:14px;padding:14px 18px;}
+.run-btn{font-family:var(--heading);font-weight:800;font-size:15px;color:#fff;cursor:pointer;
+  background:var(--amd-red);border:none;border-radius:10px;padding:12px 26px;transition:background .2s,transform .12s;}
+.run-btn:hover{background:var(--amd-red-hover);transform:translateY(-1px);}
+.run-btn:disabled{background:#3a434f;cursor:default;transform:none;}
+.ctrl-opt{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);}
+.ctrl-opt select{font-family:var(--mono);font-size:13px;color:var(--text);background:#0e131a;
+  border:1px solid var(--border);border-radius:8px;padding:7px 10px;outline:none;}
+.run-status{font-size:13px;color:var(--muted);margin-left:auto;font-family:var(--mono);}
+.run-status b{color:var(--text);}
+.progress{flex-basis:100%;height:9px;border-radius:6px;background:rgba(255,255,255,.05);
+  border:1px solid var(--border);overflow:hidden;display:none;}
+.progress i{display:block;height:100%;width:0%;background:linear-gradient(90deg,var(--amd-red),#ff7a30);transition:width .4s;}
+
+/* headline stat row */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+@media(max-width:1100px){.stats{grid-template-columns:repeat(2,1fr);}}
+.stat{background:linear-gradient(160deg,var(--surface),var(--surface-2));border:1px solid var(--border);
+  border-radius:14px;padding:14px 16px;position:relative;overflow:hidden;}
+.stat .k{color:var(--muted);font-size:11px;letter-spacing:.4px;text-transform:uppercase;margin-bottom:7px;}
+.stat .cmp{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.stat .big{font-family:var(--heading);font-weight:800;font-size:30px;line-height:1;}
+.stat .big.on{color:var(--on);}
+.stat .big.off{color:var(--off);}
+.stat .vs{color:var(--muted);font-size:12px;}
+.stat .u{color:var(--muted);font-size:11.5px;margin-top:5px;}
+.stat .spd{position:absolute;top:12px;right:14px;font-family:var(--heading);font-weight:800;
+  font-size:14px;color:var(--ok);background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.4);
+  border-radius:7px;padding:2px 9px;}
+
+.panels{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;}
+@media(max-width:1100px){.panels{grid-template-columns:1fr;}}
+.panel{background:linear-gradient(160deg,var(--surface),var(--surface-2));border:1px solid var(--border);
+  border-radius:16px;padding:18px 20px;margin-bottom:16px;}
+.panel h3{font-family:var(--heading);font-weight:700;font-size:15px;margin:0 0 4px;letter-spacing:.3px;
+  display:flex;align-items:center;gap:9px;}
+.panel .sub{color:var(--muted);font-size:12px;margin:0 0 14px;}
+.legend{display:flex;gap:16px;margin:0 0 10px;font-size:12px;color:var(--muted);}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend i{width:11px;height:11px;border-radius:3px;display:inline-block;}
+.legend i.on{background:var(--on);}
+.legend i.off{background:var(--off);}
+svg{display:block;width:100%;overflow:visible;}
+.txt{fill:var(--text);font-family:var(--body);font-size:12px;}
+.txtm{fill:var(--muted);font-family:var(--body);font-size:11px;}
+.txtv{fill:var(--text);font-family:var(--heading);font-weight:700;font-size:12px;}
+
+/* routing mix */
+.mix{display:flex;flex-direction:column;gap:9px;}
+.mixrow{display:flex;align-items:center;gap:10px;}
+.mixrow .nm{font-family:var(--heading);font-weight:700;font-size:12px;color:#fff;border-radius:6px;padding:2px 9px;min-width:46px;text-align:center;}
+.mixrow .bar{flex:1;height:14px;border-radius:7px;background:rgba(255,255,255,.05);overflow:hidden;border:1px solid var(--border);}
+.mixrow .bar i{display:block;height:100%;transition:width .5s;}
+.mixrow .ct{font-family:var(--mono);font-size:12px;color:var(--muted);min-width:70px;text-align:right;}
+
+/* live ticker */
+.ticker{max-height:260px;overflow-y:auto;font-family:var(--mono);font-size:11.5px;}
+.trow{display:grid;grid-template-columns:38px 1fr 90px 90px;gap:8px;padding:6px 4px;border-bottom:1px solid #1b222c;align-items:center;}
+.trow .tier{font-weight:700;border-radius:5px;padding:1px 6px;text-align:center;font-size:10px;color:#fff;}
+.trow .tier.trivial{background:var(--t2b);}
+.trow .tier.standard{background:var(--t9b);}
+.trow .tier.hard{background:var(--t27b);color:#1a0c03;}
+.trow .pr{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.trow .onc{color:var(--on);text-align:right;}
+.trow .offc{color:var(--off);text-align:right;}
+.empty{color:var(--muted);font-size:13px;padding:30px 0;text-align:center;}
+.err{color:var(--off);font-size:12.5px;}
+.caption{color:var(--muted);font-size:11.5px;margin-top:10px;line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="glow"></div>
+
+<header class="hdr">
+  <div class="logo" aria-label="AMD">
+    <svg viewBox="0 0 800 190.803" role="img" aria-label="AMD" xmlns="http://www.w3.org/2000/svg"><path fill="#ffffff" d="M187.888 178.122H143.52l-13.573-32.738H56.003l-12.366 32.738H0L66.667 12.776h47.761zM91.155 52.286L66.912 116.53h50.913zm257.901-39.51h35.88v165.346h-41.219V74.842l-44.608 51.877h-6.301l-44.605-51.877V178.12h-41.219V12.776h35.88l53.092 61.336zm140.319 0c60.364 0 91.391 37.573 91.391 82.909 0 47.517-30.058 82.437-96 82.437h-68.369V12.776zm-31.762 135.041h26.906c41.457 0 53.823-28.129 53.823-52.377 0-28.368-15.276-52.363-54.308-52.363h-26.422v104.74zm205.156-95.836L610.797 0H800v189.21l-51.972-51.975V51.981zm-.061 10.416L609.2 115.903v74.899h74.889l53.505-53.506h-74.886z"/></svg>
+  </div>
+  <div class="hdr-txt">
+    <span class="hdr-ev">Benchmark playground</span>
+    <span class="hdr-sub">GPU performance with vLLM semantic routing ON vs OFF &middot; one MI300X &middot; ROCm&trade;</span>
+  </div>
+  <div class="hdr-spacer"></div>
+  <a class="back-cta" href="/" id="backCta">&larr; Back to dashboard</a>
+  <div class="sov"><span class="dot"></span><span>LOCAL ONLY &middot; 0 cloud calls</span></div>
+</header>
+
+<div class="wrap">
+  <div class="intro">
+    <div class="mode-card on">
+      <h4>Routing ON <span class="tog">semantic router</span></h4>
+      <p>Every prompt is classified on the CPU and sent to the right-sized model. Trivial questions go to the small model, hard reasoning to the big one. The MI300X does only the work each prompt needs.</p>
+      <div class="tiers"><span class="chip t2b">2B</span><span class="chip t9b">9B</span><span class="chip t27b">27B</span></div>
+    </div>
+    <div class="mode-card off">
+      <h4>Routing OFF <span class="tog">always 27B</span></h4>
+      <p>Routing is bypassed and <b>every</b> prompt is forced through the single 27B model, the "just use the biggest model for everything" baseline. Correct answers, but it burns the whole GPU even on questions a 2B could answer in a blink.</p>
+      <div class="tiers"><span class="chip t2b dim">2B</span><span class="chip t9b dim">9B</span><span class="chip t27b">27B</span></div>
+    </div>
+  </div>
+
+  <div class="ctrlbar">
+    <button class="run-btn" id="runBtn">Run benchmark</button>
+    <div class="ctrl-opt">items / tier
+      <select id="limitSel">
+        <option value="4" selected>4 (quick, ~12)</option>
+        <option value="8">8 (~24)</option>
+        <option value="0">all (36)</option>
+      </select>
+    </div>
+    <div class="run-status" id="runStatus">Idle. Press Run to pause the swarm, measure both modes, then resume.</div>
+    <div class="progress" id="progWrap"><i id="progBar"></i></div>
+  </div>
+
+  <div class="stats" id="stats">
+    <div class="stat"><div class="k">Avg latency / prompt</div><div class="cmp"><span class="big on" id="st_lat_on">&mdash;</span><span class="vs">vs</span><span class="big off" id="st_lat_off">&mdash;</span></div><div class="u">ms, ON vs OFF</div><div class="spd" id="st_lat_x" style="display:none"></div></div>
+    <div class="stat"><div class="k">Total wall time</div><div class="cmp"><span class="big on" id="st_wall_on">&mdash;</span><span class="vs">vs</span><span class="big off" id="st_wall_off">&mdash;</span></div><div class="u">seconds to serve the workload</div><div class="spd" id="st_wall_x" style="display:none"></div></div>
+    <div class="stat"><div class="k">Throughput</div><div class="cmp"><span class="big on" id="st_tok_on">&mdash;</span><span class="vs">vs</span><span class="big off" id="st_tok_off">&mdash;</span></div><div class="u">tokens / sec aggregate</div><div class="spd" id="st_tok_x" style="display:none"></div></div>
+    <div class="stat"><div class="k">Time to first token</div><div class="cmp"><span class="big on" id="st_ttft_on">&mdash;</span><span class="vs">vs</span><span class="big off" id="st_ttft_off">&mdash;</span></div><div class="u">ms, how fast it starts replying</div><div class="spd" id="st_ttft_x" style="display:none"></div></div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <h3>Average latency by difficulty tier</h3>
+      <p class="sub">How long each prompt takes, grouped by tier. Routing ON sends trivial/standard prompts to the small models, so those bars collapse; OFF pays the 27B price for all of them.</p>
+      <div class="legend"><span><i class="on"></i> Routing ON</span><span><i class="off"></i> Routing OFF (always 27B)</span></div>
+      <svg id="chartTier" viewBox="0 0 560 240" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="panel">
+      <h3>Total wall time &amp; throughput</h3>
+      <p class="sub">Whole-workload cost. Routing ON finishes sooner and sustains higher aggregate tokens/sec because two thirds of the work never touches the big model.</p>
+      <div class="legend"><span><i class="on"></i> Routing ON</span><span><i class="off"></i> Routing OFF</span></div>
+      <svg id="chartWall" viewBox="0 0 560 240" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <h3>Where routing ON sent the work</h3>
+      <p class="sub">The live routing mix for this run. Only the hard prompts reach the 27B; everything else is served cheaply.</p>
+      <div class="mix" id="mix"><div class="empty">Run the benchmark to see the routing mix.</div></div>
+      <p class="caption" id="mixCap"></p>
+    </div>
+    <div class="panel">
+      <h3>Live results <span id="liveDot"></span></h3>
+      <p class="sub">Each prompt as it completes: its tier, and the ON vs OFF latency side by side.</p>
+      <div class="ticker" id="ticker"><div class="empty">No results yet.</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const runBtn=$('runBtn'), limitSel=$('limitSel'), runStatus=$('runStatus');
+const progWrap=$('progWrap'), progBar=$('progBar');
+
+function fmt(v,unit){ if(v==null) return '\u2014'; return Math.round(v).toLocaleString()+(unit||''); }
+function fmt1(v,unit){ if(v==null) return '\u2014'; return (Math.round(v*10)/10).toLocaleString()+(unit||''); }
+
+/* ---------- SVG grouped bar chart ---------- */
+function barChart(svgId, groups, maxHint){
+  // groups: [{label, on, off}]  values numeric (null ok)
+  const svg=$(svgId); const W=560,H=240, padL=48,padR=14,padT=12,padB=42;
+  const iw=W-padL-padR, ih=H-padT-padB;
+  let max=maxHint||0;
+  groups.forEach(g=>{ ['on','off'].forEach(k=>{ if(g[k]!=null&&g[k]>max) max=g[k]; }); });
+  if(max<=0) max=1;
+  const niceMax=max*1.12;
+  const gw=iw/groups.length, bw=Math.min(46,(gw-18)/2);
+  let s='';
+  // gridlines
+  for(let i=0;i<=4;i++){ const y=padT+ih-(ih*i/4); const val=niceMax*i/4;
+    s+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#222b36" stroke-width="1"/>`;
+    s+=`<text class="txtm" x="${padL-6}" y="${(y+3).toFixed(1)}" text-anchor="end">${Math.round(val).toLocaleString()}</text>`;
+  }
+  groups.forEach((g,gi)=>{
+    const cx=padL+gw*gi+gw/2;
+    const pairs=[['on',cx-bw-3,'var(--on)'],['off',cx+3,'var(--off)']];
+    pairs.forEach(([k,x,col])=>{
+      const v=g[k];
+      if(v!=null){
+        const h=ih*(v/niceMax); const y=padT+ih-h;
+        s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="3" fill="${col}"/>`;
+        s+=`<text class="txtv" x="${(x+bw/2).toFixed(1)}" y="${(y-5).toFixed(1)}" text-anchor="middle">${Math.round(v).toLocaleString()}</text>`;
+      }
+    });
+    s+=`<text class="txt" x="${cx.toFixed(1)}" y="${H-padB+20}" text-anchor="middle">${g.label}</text>`;
+  });
+  svg.innerHTML=s;
+}
+
+/* two-metric chart: wall time (bars) + tok/s (bars) side panels */
+function wallChart(on, off){
+  const svg=$('chartWall'); const W=560,H=240;
+  // left half = wall time, right half = tok/s. Two mini grouped charts.
+  const groups=[
+    {label:'Total wall time (s)', on:on&&on.total_wall_s, off:off&&off.total_wall_s},
+    {label:'Throughput (tok/s)',  on:on&&on.tok_s,       off:off&&off.tok_s},
+  ];
+  // normalize per-group (different units) -> draw each group to its own max
+  const padL=14,padR=14,padT=14,padB=42, iw=W-padL-padR, ih=H-padT-padB;
+  const gw=iw/groups.length, bw=42;
+  let s='';
+  groups.forEach((g,gi)=>{
+    const gx=padL+gw*gi;
+    const lmax=Math.max(g.on||0,g.off||0)*1.18||1;
+    const cx=gx+gw/2;
+    [['on',cx-bw-4,'var(--on)'],['off',cx+4,'var(--off)']].forEach(([k,x,col])=>{
+      const v=g[k];
+      if(v!=null){
+        const h=ih*(v/lmax); const y=padT+ih-h;
+        s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${Math.max(0,h).toFixed(1)}" rx="3" fill="${col}"/>`;
+        s+=`<text class="txtv" x="${(x+bw/2).toFixed(1)}" y="${(y-5).toFixed(1)}" text-anchor="middle">${fmt1(v)}</text>`;
+      }
+    });
+    s+=`<text class="txt" x="${cx.toFixed(1)}" y="${H-padB+22}" text-anchor="middle">${g.label}</text>`;
+  });
+  s+=`<line x1="${(padL+gw).toFixed(1)}" y1="${padT}" x2="${(padL+gw).toFixed(1)}" y2="${padT+ih}" stroke="#222b36" stroke-dasharray="3 3"/>`;
+  svg.innerHTML=s;
+}
+
+const MIXCOLORS={'Qwen3.5-2B':'var(--t2b)','Qwen3.5-9B':'var(--t9b)','Qwen3.8-27B':'var(--t27b)'};
+const MIXSHORT={'Qwen3.5-2B':'2B','Qwen3.5-9B':'9B','Qwen3.8-27B':'27B'};
+function renderMix(on){
+  const box=$('mix'); const mix=(on&&on.routing_mix)||{};
+  const entries=Object.entries(mix);
+  if(!entries.length){ box.innerHTML='<div class="empty">Run the benchmark to see the routing mix.</div>'; $('mixCap').textContent=''; return; }
+  const total=entries.reduce((a,[,c])=>a+c,0);
+  // stable order 2B,9B,27B then others
+  const order=['Qwen3.5-2B','Qwen3.5-9B','Qwen3.8-27B'];
+  entries.sort((a,b)=>(order.indexOf(a[0])+99*(order.indexOf(a[0])<0))-(order.indexOf(b[0])+99*(order.indexOf(b[0])<0)));
+  let s='';
+  entries.forEach(([m,c])=>{
+    const pct=total?Math.round(100*c/total):0;
+    const col=MIXCOLORS[m]||'#3a434f', nm=MIXSHORT[m]||m;
+    const txtcol=(m==='Qwen3.8-27B')?'#1a0c03':'#fff';
+    s+=`<div class="mixrow"><span class="nm" style="background:${col};color:${txtcol}">${nm}</span>`+
+       `<span class="bar"><i style="width:${pct}%;background:${col}"></i></span>`+
+       `<span class="ct">${c} &middot; ${pct}%</span></div>`;
+  });
+  box.innerHTML=s;
+  const big=mix['Qwen3.8-27B']||0;
+  const small=total-big;
+  $('mixCap').innerHTML = total? `Routing ON kept <b style="color:var(--on)">${total?Math.round(100*small/total):0}%</b> of the workload off the 27B. Routing OFF would send <b style="color:var(--off)">100%</b> to it.` : '';
+}
+
+function renderTicker(items){
+  const box=$('ticker');
+  if(!items||!items.length){ box.innerHTML='<div class="empty">No results yet.</div>'; return; }
+  let s='';
+  items.slice().reverse().forEach(it=>{
+    const on=it.on||{}, off=it.off||{};
+    const onc=on.error?`<span class="err">${on.error}</span>`:(on.ms!=null?fmt(on.ms,'ms')+' <span style="color:var(--muted)">'+(MIXSHORT[on.model]||'')+'</span>':'\u2014');
+    const offc=off.error?`<span class="err">${off.error}</span>`:(off.ms!=null?fmt(off.ms,'ms'):'\u2014');
+    s+=`<div class="trow"><span class="tier ${it.tier}">${(MIXSHORT[TIERMODEL[it.tier]]||it.tier[0].toUpperCase())}</span>`+
+       `<span class="pr" title="${(it.prompt||'').replace(/"/g,'&quot;')}">${(it.prompt||'').replace(/</g,'&lt;')}</span>`+
+       `<span class="onc">${onc}</span><span class="offc">${offc}</span></div>`;
+  });
+  box.innerHTML=s;
+}
+const TIERMODEL={trivial:'Qwen3.5-2B',standard:'Qwen3.5-9B',hard:'Qwen3.8-27B'};
+
+function renderStats(on,off,speedup){
+  $('st_lat_on').textContent=fmt(on&&on.avg_latency_ms);
+  $('st_lat_off').textContent=fmt(off&&off.avg_latency_ms);
+  $('st_wall_on').textContent=fmt1(on&&on.total_wall_s);
+  $('st_wall_off').textContent=fmt1(off&&off.total_wall_s);
+  $('st_tok_on').textContent=fmt(on&&on.tok_s);
+  $('st_tok_off').textContent=fmt(off&&off.tok_s);
+  $('st_ttft_on').textContent=fmt(on&&on.avg_ttft_ms);
+  $('st_ttft_off').textContent=fmt(off&&off.avg_ttft_ms);
+  function spd(id,val,suffix){ const el=$(id); if(val&&isFinite(val)&&val>0){ el.style.display='block'; el.textContent=(Math.round(val*10)/10)+'\u00d7 '+suffix; } else el.style.display='none'; }
+  if(speedup){
+    spd('st_lat_x', speedup.latency_x, 'faster');
+    spd('st_wall_x', speedup.wall_x, 'faster');
+    spd('st_tok_x', speedup.tok_s_x, 'higher');
+  }
+}
+
+function render(data){
+  const modes=data.modes||{}; const on=modes.on, off=modes.off;
+  renderStats(on,off,data.speedup);
+  // tier chart
+  const tiers=['trivial','standard','hard']; const tlabel={trivial:'Trivial (2B)',standard:'Standard (9B)',hard:'Hard (27B)'};
+  const groups=tiers.map(t=>({label:tlabel[t],
+    on:on&&on.by_tier&&on.by_tier[t]?on.by_tier[t].avg_latency_ms:null,
+    off:off&&off.by_tier&&off.by_tier[t]?off.by_tier[t].avg_latency_ms:null}));
+  barChart('chartTier',groups);
+  wallChart(on,off);
+  renderMix(on);
+  renderTicker(data.items);
+}
+
+let poll=null;
+async function tick(){
+  try{
+    const r=await fetch('/api/benchmark'); const d=await r.json();
+    if(d&&(d.modes||d.phase)){
+      render(d);
+      const p=d.progress||{done:0,total:0};
+      if(d.running){
+        progWrap.style.display='block';
+        progBar.style.width=(p.total?100*p.done/p.total:0)+'%';
+        $('liveDot').innerHTML='<span class="sov" style="padding:2px 9px;font-size:10px"><span class="dot" style="width:7px;height:7px"></span>measuring</span>';
+        runStatus.innerHTML='<b>'+(d.phase||'measuring')+'</b> &middot; '+p.done+' / '+p.total+' prompts';
+        runBtn.disabled=true;
+      }else{
+        progWrap.style.display='none';
+        $('liveDot').innerHTML='';
+        if(d.phase==='error'||d.ok===false&&d.error){ runStatus.innerHTML='<span style="color:var(--off)">'+(d.error||'error')+'</span>'; }
+        else if(d.updated){ runStatus.innerHTML='<b>Done.</b> '+(p.total||d.n_items||0)+' prompts, both modes. Press Run to repeat.'; }
+        runBtn.disabled=false;
+        if(poll){clearInterval(poll);poll=null;}
+      }
+    }
+  }catch(e){}
+}
+
+runBtn.addEventListener('click', async ()=>{
+  runBtn.disabled=true;
+  runStatus.innerHTML='<b>Pausing the swarm</b> and clearing the GPU\u2026';
+  progWrap.style.display='block'; progBar.style.width='0%';
+  try{
+    const lim=limitSel.value;
+    await fetch('/api/benchmark/run?limit='+encodeURIComponent(lim),{method:'POST'});
+  }catch(e){ runStatus.textContent='Could not start the run.'; runBtn.disabled=false; return; }
+  if(poll) clearInterval(poll);
+  poll=setInterval(tick,1200);
+  setTimeout(tick,500);
+});
+
+// show any cached result on load (and resume polling if a run is live)
+tick();
+</script>
+</body>
+</html>
