@@ -494,8 +494,15 @@ pollThru();setInterval(pollThru,1500);
     ans.className='tryit-answer placeholder'; ans.textContent='waiting for the model\u2026';
     meta.textContent='';
     let acc='';
+    // Client watchdog: a wedged backend can accept the stream but never emit a
+    // token, which would freeze the button on "Routing..." forever. Abort if no
+    // SSE data arrives within the window and show an honest retry message.
+    const ctrl=new AbortController();
+    let gotData=false;
+    let wd=setTimeout(()=>{ if(!gotData){ try{ctrl.abort();}catch(e){} } },45000);
+    const bump=()=>{ gotData=true; clearTimeout(wd); wd=setTimeout(()=>{},0); };
     try{
-      const resp=await fetch('/api/route_answer?prompt='+encodeURIComponent(prompt));
+      const resp=await fetch('/api/route_answer?prompt='+encodeURIComponent(prompt),{signal:ctrl.signal});
       if(!resp.ok||!resp.body) throw new Error('no stream');
       const reader=resp.body.getReader();
       const td=new TextDecoder();
@@ -503,6 +510,7 @@ pollThru();setInterval(pollThru,1500);
       while(true){
         const {value,done}=await reader.read();
         if(done) break;
+        bump();
         buf+=td.decode(value,{stream:true});
         let idx;
         while((idx=buf.indexOf('\n\n'))>=0){
@@ -544,8 +552,13 @@ pollThru();setInterval(pollThru,1500);
         }
       }
     }catch(e){
-      ans.className='tryit-answer placeholder'; ans.textContent='Could not reach the router. Try again.';
+      flowError();
+      ans.className='tryit-answer placeholder';
+      ans.textContent=(e&&e.name==='AbortError')
+        ? 'The GPU was busy and did not respond in time. The booth is recovering the engine; try again in a moment.'
+        : 'Could not reach the router. Try again.';
     }finally{
+      clearTimeout(wd);
       busy=false; btn.textContent='Route it';
       btn.disabled=!liveReady;
       pingLive();

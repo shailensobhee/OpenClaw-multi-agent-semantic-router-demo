@@ -834,6 +834,35 @@ def _live_watchdog():
             return
 
 
+def _live_recover_wedge():
+    """A backend is deadlocked (requests_running>0 while generation is frozen);
+    stopping load will not unstick it. Restart the vLLM backend containers in
+    the KV-cache-safe order 2B -> 27B -> 9B (simultaneous restart starves the
+    later engine of KV cache), waiting for each /health before the next. Names
+    + ports come from env so the box layout stays configurable.
+    """
+    # name:port in restart order
+    plan = os.environ.get("LIVE_BACKENDS", "qwen-05b:8001,qwen-32b:8003,qwen-7b:8002")
+    for item in plan.split(","):
+        item = item.strip()
+        if not item or ":" not in item:
+            continue
+        name, port = item.rsplit(":", 1)
+        try:
+            subprocess.run(["docker", "restart", name],
+                           capture_output=True, text=True, timeout=60)
+        except Exception:
+            continue
+        # wait for health up to ~150s
+        import urllib.request
+        for _ in range(30):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=3)
+                break
+            except Exception:
+                time.sleep(5)
+
+
 def _live_enter():
     """Stop load, open a clean window. Returns (changed, phase)."""
     with _live_lock:
@@ -848,7 +877,41 @@ def _live_enter():
     _load_pause("live")
 
     def _settle():
-        time.sleep(LIVE_DRAIN_S)
+        # Actively VERIFY the window drained instead of blindly sleeping then
+        # claiming ready. A visitor prompt that routes to an already-WEDGED
+        # backend (running>0 while generation_tokens_total is frozen) would sit
+        # behind the stuck requests forever -> the UI stuck on "Routing..." with
+        # no answer. Stopping load cannot unstick an already-deadlocked engine,
+        # so detect the wedge and restart just the stuck backend(s), then wait
+        # for the window to actually clear before marking ready.
+        deadline = time.time() + LIVE_DRAIN_S
+        while time.time() < deadline:
+            time.sleep(1.5)
+            with _live_lock:
+                if not _live["on"]:
+                    return
+            _, running = _vllm_counter()
+            if running is not None and running <= 0:
+                break
+        # Re-check: if still busy, decide drain-in-progress vs true wedge by
+        # sampling the generation counter. Frozen counter + running>0 = wedge.
+        g0, running = _vllm_counter()
+        if running and running > 0:
+            time.sleep(5)
+            g1, running2 = _vllm_counter()
+            frozen = (g0 is not None and g1 is not None and abs(g1 - g0) < 1.0)
+            if frozen and running2 and running2 > 0:
+                _live_recover_wedge()
+                # give restarted engines time to come back, then wait to clear
+                extra = time.time() + 240
+                while time.time() < extra:
+                    time.sleep(3)
+                    with _live_lock:
+                        if not _live["on"]:
+                            return
+                    _, r = _vllm_counter()
+                    if r is not None and r <= 0:
+                        break
         with _live_lock:
             if _live["on"]:
                 _live["phase"] = "ready"
