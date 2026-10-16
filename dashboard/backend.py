@@ -1036,6 +1036,159 @@ def benchmark():
     return jsonify(data)
 
 
+# =====================================================================
+# Decision-model device benchmark: run the router's OWN decision model
+# (vllm-sr/Vela-2.0-0.3B, the 0.3B encoder that picks the tier) on CPU vs on
+# the MI300X and compare decision throughput. Same model, same code, only the
+# device differs. The model + transformers + ROCm torch live INSIDE the qwen
+# container, so we run the script there via `docker exec`. Nothing simulated.
+# =====================================================================
+DECISION_STATE = Path(os.environ.get("DECISION_STATE", str(BASE / "decision_bench.json")))
+DECISION_SCRIPT = Path(os.environ.get("DECISION_SCRIPT", str(BASE.parent / "benchmarks" / "decision_device.py")))
+DECISION_CONTAINER = os.environ.get("DECISION_CONTAINER", "qwen-05b")
+DECISION_REPO = os.environ.get("DECISION_REPO", "vllm-sr/Vela-2.0-0.3B")
+
+_dec_lock = threading.Lock()
+_dec_running = {"on": False, "phase": "idle", "started": 0.0}
+
+
+def _write_decision_state(data):
+    DECISION_STATE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = DECISION_STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(DECISION_STATE)
+
+
+def _run_decision_device(container, device, n, state, script_in_container):
+    """Stream JSONL from the device benchmark running inside `container` and
+    fold it into `state[device]`. Returns the summary dict or None on failure."""
+    cmd = ["docker", "exec",
+           "-e", "HF_HUB_DISABLE_PROGRESS_BARS=1",
+           "-e", f"DECISION_REPO={DECISION_REPO}",
+           container, "python3", script_in_container,
+           "--device", device, "--n", str(n)]
+    state[device] = {"phase": "loading", "done": 0, "total": n, "rows": []}
+    _write_decision_state(state)
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except Exception as e:
+        state[device] = {"phase": "error", "error": f"{e.__class__.__name__}: {e}"}
+        _write_decision_state(state)
+        return None
+    summary = None
+    for line in (proc.stdout or []):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        kind = ev.get("ev")
+        if kind == "load":
+            state[device]["phase"] = "measuring"
+            state[device]["load_s"] = ev.get("load_s")
+        elif kind == "item":
+            state[device]["done"] = ev.get("done")
+            state[device]["total"] = ev.get("total")
+            state[device]["rows"] = (state[device].get("rows") or [])[-20:] + [
+                {"tier": ev.get("tier"), "got": ev.get("got"), "ms": ev.get("ms")}]
+        elif kind == "summary":
+            summary = ev
+            state[device].update({"phase": "done", **{k: ev[k] for k in
+                ("avg_ms", "p50_ms", "dps", "wall_s", "n", "load_s") if k in ev}})
+        elif kind == "error":
+            state[device] = {"phase": "error", "error": ev.get("error")}
+        _write_decision_state(state)
+    proc.wait()
+    if summary is None and state.get(device, {}).get("phase") != "error":
+        err = ((proc.stderr.read() if proc.stderr else "") or "")[-300:]
+        state[device] = {"phase": "error", "error": err or "no summary emitted"}
+        _write_decision_state(state)
+    return summary
+
+
+def _run_decision_job(n):
+    try:
+        _dec_running["phase"] = "pausing load"
+        _load_pause("decision")
+        time.sleep(float(os.environ.get("DECISION_DRAIN_S", "10")))
+        # Copy the script into the container (repo path differs inside it).
+        in_c = "/tmp/decision_device.py"
+        try:
+            subprocess.run(["docker", "cp", str(DECISION_SCRIPT),
+                            f"{DECISION_CONTAINER}:{in_c}"], check=True,
+                           capture_output=True, timeout=30)
+        except Exception as e:
+            _write_decision_state({"ok": False, "updated": time.time(), "phase": "error",
+                                   "running": False, "error": f"docker cp failed: {e}"})
+            return
+        state = {"ok": True, "updated": time.time(), "phase": "measuring",
+                 "running": True, "model": DECISION_REPO, "n": n,
+                 "cpu": None, "gpu": None}
+        _dec_running["phase"] = "measuring CPU"
+        _run_decision_device(DECISION_CONTAINER, "cpu", n, state, in_c)
+        state["updated"] = time.time(); _write_decision_state(state)
+        _dec_running["phase"] = "measuring GPU"
+        _run_decision_device(DECISION_CONTAINER, "gpu", n, state, in_c)
+        # Final: compute the speedup from real numbers.
+        cpu, gpu = state.get("cpu") or {}, state.get("gpu") or {}
+        if cpu.get("avg_ms") and gpu.get("avg_ms"):
+            state["speedup"] = {
+                "latency_x": round(cpu["avg_ms"] / gpu["avg_ms"], 1),
+                "dps_x": round(gpu["dps"] / cpu["dps"], 1) if (cpu.get("dps") and gpu.get("dps")) else None,
+            }
+        state["phase"] = "done"; state["running"] = False; state["updated"] = time.time()
+        _write_decision_state(state)
+    except Exception as e:
+        _write_decision_state({"ok": False, "updated": time.time(), "phase": "error",
+                               "running": False, "error": f"{e.__class__.__name__}: {e}"})
+    finally:
+        _dec_running["phase"] = "resuming load"
+        _load_resume("decision")
+        _dec_running["on"] = False
+        _dec_running["phase"] = "idle"
+
+
+@app.route("/api/benchmark/decision")
+def benchmark_decision():
+    """Latest decision-model CPU-vs-GPU results."""
+    running = _dec_running["on"]
+    try:
+        data = json.loads(DECISION_STATE.read_text())
+        data["age_s"] = round(time.time() - data.get("updated", 0), 1)
+    except FileNotFoundError:
+        data = {"ok": False, "error": "no run yet"}
+    except Exception as e:
+        data = {"ok": False, "error": f"{e.__class__.__name__}"}
+    if running:
+        data["running"] = True
+        data["phase"] = _dec_running["phase"]
+    return jsonify(data)
+
+
+@app.route("/api/benchmark/decision/run", methods=["POST", "GET"])
+def benchmark_decision_run():
+    """Run the decision model on CPU then GPU, comparing throughput."""
+    try:
+        n = int(request.args.get("n", os.environ.get("DECISION_N", "6")))
+    except ValueError:
+        n = 6
+    n = max(1, min(n, 60))
+    with _dec_lock:
+        if _dec_running["on"]:
+            return jsonify({"ok": False, "error": "already running",
+                            "phase": _dec_running["phase"]}), 200
+        if not DECISION_SCRIPT.exists():
+            return jsonify({"ok": False, "error": f"runner missing: {DECISION_SCRIPT}"}), 200
+        _dec_running["on"] = True
+        _dec_running["started"] = time.time()
+        _dec_running["phase"] = "starting"
+        threading.Thread(target=_run_decision_job, args=(n,), daemon=True).start()
+    return jsonify({"ok": True, "started": True,
+                    "note": "pausing swarm+loadgen, measuring decision model on CPU then GPU, then resuming"})
+
+
 @app.route("/api/benchmark/run", methods=["POST", "GET"])
 def benchmark_run():
     """Kick off an on-demand benchmark (pauses load, measures both modes, resumes)."""

@@ -105,6 +105,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--body);position:rel
 .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;}
 .legend i.on{background:var(--on);}
 .legend i.off{background:var(--off);}
+.legend i.gpu{background:var(--on);}
+.legend i.cpu{background:var(--off);}
+.stat .big.gpu{color:var(--on);}
+.stat .big.cpu{color:var(--off);}
+.dsection{margin-top:34px;padding-top:26px;border-top:1px solid #1d2733;}
+.dsection h2{font-family:var(--heading);font-size:22px;margin:0 0 8px;}
+.dlede{color:var(--text);font-size:13.5px;line-height:1.55;margin:0 0 8px;max-width:980px;}
+.dnote{color:var(--muted);font-size:12px;line-height:1.5;margin:0 0 18px;max-width:980px;}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.92em;color:var(--on);}
 svg{display:block;width:100%;overflow:visible;}
 .txt{fill:var(--text);font-family:var(--body);font-size:12px;}
 .txtm{fill:var(--muted);font-family:var(--body);font-size:11px;}
@@ -209,6 +218,43 @@ svg{display:block;width:100%;overflow:visible;}
       <h3>Live results <span id="liveDot"></span></h3>
       <p class="sub">Each prompt as it completes: its tier, and the ON vs OFF latency side by side.</p>
       <div class="ticker" id="ticker"><div class="empty">No results yet.</div></div>
+    </div>
+  </div>
+
+  <div class="dsection">
+    <h2>Decision model: CPU vs GPU</h2>
+    <p class="dlede">The Semantic Router runs a small <b>0.3B decision model</b> (<span class="mono" id="decModel">vllm-sr/Vela-2.0-0.3B</span>) to pick the tier for every prompt. This runs the <b>exact same model and code</b> on the CPU and on the AMD MI300X, changing <b>only the device</b>, and compares how many routing decisions per second each can sustain. Nothing is simulated; the numbers below come from a real run.</p>
+    <p class="dnote">Measured on the transformers (PyTorch, fp32) reference path so the device is the only variable. The production router classifies on CPU with a compiled, optimized runtime that is much faster than this fp32 CPU path; this panel isolates the raw model forward to show the GPU acceleration.</p>
+
+    <div class="ctrlbar">
+      <button class="run-btn" id="decRunBtn">Run decision benchmark</button>
+      <div class="ctrl-opt">decisions
+        <select id="decNSel">
+          <option value="6" selected>6 (quick)</option>
+          <option value="12">12</option>
+          <option value="24">24</option>
+        </select>
+      </div>
+      <div class="run-status" id="decStatus">Idle. Press Run to measure the decision model on CPU then GPU.</div>
+    </div>
+
+    <div class="stats dstats">
+      <div class="stat"><div class="k">Decisions / second</div><div class="cmp"><span class="big gpu" id="d_dps_gpu">&mdash;</span><span class="vs">vs</span><span class="big cpu" id="d_dps_cpu">&mdash;</span></div><div class="u">GPU vs CPU, higher is better</div><div class="spd" id="d_dps_x" style="display:none"></div></div>
+      <div class="stat"><div class="k">Latency / decision</div><div class="cmp"><span class="big gpu" id="d_lat_gpu">&mdash;</span><span class="vs">vs</span><span class="big cpu" id="d_lat_cpu">&mdash;</span></div><div class="u">ms, GPU vs CPU</div><div class="spd" id="d_lat_x" style="display:none"></div></div>
+    </div>
+
+    <div class="panels">
+      <div class="panel">
+        <h3>Decision throughput (decisions / sec)</h3>
+        <p class="sub">How many routing decisions each device sustains with the same model. The GPU runs the tier classifier in parallel on the MI300X; the CPU path is the baseline.</p>
+        <div class="legend"><span><i class="gpu"></i> MI300X (GPU)</span><span><i class="cpu"></i> CPU</span></div>
+        <svg id="chartDec" viewBox="0 0 560 240" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="panel">
+        <h3>Per-decision latency <span id="decDot"></span></h3>
+        <p class="sub">Each decision as it completes, newest first: the tier the model picked and how long it took on the current device.</p>
+        <div class="ticker" id="decTicker"><div class="empty">No decisions yet.</div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -395,6 +441,100 @@ runBtn.addEventListener('click', async ()=>{
 
 // show any cached result on load (and resume polling if a run is live)
 tick();
+
+/* ================= Decision model: CPU vs GPU ================= */
+const decRunBtn=$('decRunBtn'), decNSel=$('decNSel'), decStatus=$('decStatus');
+let decPoll=null;
+
+function decBar(cpu,gpu){
+  // one grouped bar: decisions/sec, GPU vs CPU. GPU dwarfs CPU, so give CPU a
+  // readable floor by drawing to a shared max but always showing the number.
+  const svg=$('chartDec'); const W=560,H=240,padL=56,padR=16,padT=16,padB=46;
+  const iw=W-padL-padR, ih=H-padT-padB;
+  const gv=gpu&&gpu.dps, cv=cpu&&cpu.dps;
+  let max=Math.max(gv||0,cv||0)*1.15||1;
+  let s='';
+  for(let i=0;i<=4;i++){ const y=padT+ih-(ih*i/4); const val=max*i/4;
+    s+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#222b36" stroke-width="1"/>`;
+    s+=`<text class="txtm" x="${padL-8}" y="${(y+3).toFixed(1)}" text-anchor="end">${(Math.round(val*10)/10).toLocaleString()}</text>`;
+  }
+  const bars=[['MI300X (GPU)',gv,'var(--on)'],['CPU',cv,'var(--off)']];
+  const gw=iw/bars.length, bw=76;
+  bars.forEach(([lab,v,col],i)=>{
+    const cx=padL+gw*i+gw/2;
+    if(v!=null){
+      const h=ih*(v/max); const y=padT+ih-h;
+      s+=`<rect x="${(cx-bw/2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${Math.max(2,h).toFixed(1)}" rx="4" fill="${col}"/>`;
+      s+=`<text class="txtv" x="${cx.toFixed(1)}" y="${(y-7).toFixed(1)}" text-anchor="middle">${(Math.round(v*10)/10).toLocaleString()}/s</text>`;
+    }
+    s+=`<text class="txt" x="${cx.toFixed(1)}" y="${H-padB+22}" text-anchor="middle">${lab}</text>`;
+  });
+  svg.innerHTML=s;
+}
+
+function decTicker(rows){
+  const box=$('decTicker');
+  if(!rows||!rows.length){ box.innerHTML='<div class="empty">No decisions yet.</div>'; return; }
+  let s='';
+  rows.slice().reverse().forEach(r=>{
+    const ok=(r.tier===r.got);
+    s+=`<div class="trow"><span class="tier ${r.got||''}">${(r.got||'?')[0].toUpperCase()}</span>`+
+       `<span class="pr">picked <b>${r.got||'?'}</b>${ok?'':' <span style="color:var(--muted)">(label '+r.tier+')</span>'}</span>`+
+       `<span class="onc">${r.ms!=null?Math.round(r.ms).toLocaleString()+'ms':'\u2014'}</span></div>`;
+  });
+  box.innerHTML=s;
+}
+
+function decRender(d){
+  const cpu=d.cpu||{}, gpu=d.gpu||{};
+  $('d_dps_gpu').textContent=gpu.dps!=null?(Math.round(gpu.dps*10)/10).toLocaleString():'\u2014';
+  $('d_dps_cpu').textContent=cpu.dps!=null?(Math.round(cpu.dps*10)/10).toLocaleString():'\u2014';
+  $('d_lat_gpu').textContent=gpu.avg_ms!=null?fmt(gpu.avg_ms,'ms'):'\u2014';
+  $('d_lat_cpu').textContent=cpu.avg_ms!=null?fmt(cpu.avg_ms,'ms'):'\u2014';
+  const sx=d.speedup||{};
+  function spd(id,val,suf){ const el=$(id); if(val&&isFinite(val)&&val>0){ el.style.display='block'; el.textContent=(Math.round(val*10)/10)+'\u00d7 '+suf; } else el.style.display='none'; }
+  spd('d_dps_x', sx.dps_x, 'higher');
+  spd('d_lat_x', sx.latency_x, 'faster');
+  decBar(cpu,gpu);
+  // live ticker shows whichever device is currently measuring (or GPU when done)
+  const active=(gpu.rows&&gpu.rows.length)?gpu.rows:(cpu.rows||[]);
+  decTicker(active.length?active:((gpu.phase==='done'?gpu.rows:cpu.rows)||[]));
+}
+
+async function decTick(){
+  try{
+    const r=await fetch('/api/benchmark/decision'); const d=await r.json();
+    if(!d) return;
+    decRender(d);
+    const running=d.running;
+    if(running){
+      decRunBtn.disabled=true;
+      const dev=(d.phase||'').includes('GPU')?'GPU':(d.phase||'').includes('CPU')?'CPU':'';
+      const cur=(d.gpu&&d.gpu.done)||(d.cpu&&d.cpu.done)||0;
+      const tot=(d.gpu&&d.gpu.total)||(d.cpu&&d.cpu.total)||0;
+      $('decDot').innerHTML='<span class="sov" style="padding:2px 9px;font-size:10px"><span class="dot" style="width:7px;height:7px"></span>'+(dev||'measuring')+'</span>';
+      decStatus.innerHTML='<b>'+(d.phase||'measuring')+'</b>'+(tot?' &middot; '+cur+' / '+tot+' decisions':'');
+    }else{
+      decRunBtn.disabled=false; $('decDot').innerHTML='';
+      if(d.phase==='error'||(d.ok===false&&d.error)){ decStatus.innerHTML='<span style="color:var(--off)">'+(d.error||'error')+'</span>'; }
+      else if(d.speedup){ decStatus.innerHTML='<b>Done.</b> GPU ran the decision model <b style="color:var(--on)">'+(d.speedup.dps_x||d.speedup.latency_x)+'\u00d7</b> faster than CPU. Press Run to repeat.'; }
+      if(decPoll){clearInterval(decPoll);decPoll=null;}
+    }
+  }catch(e){}
+}
+
+decRunBtn.addEventListener('click', async ()=>{
+  decRunBtn.disabled=true;
+  decStatus.innerHTML='<b>Pausing the swarm</b> and clearing the GPU\u2026';
+  try{
+    await fetch('/api/benchmark/decision/run?n='+encodeURIComponent(decNSel.value),{method:'POST'});
+  }catch(e){ decStatus.textContent='Could not start the run.'; decRunBtn.disabled=false; return; }
+  if(decPoll) clearInterval(decPoll);
+  decPoll=setInterval(decTick,1200);
+  setTimeout(decTick,500);
+});
+
+decTick();
 </script>
 </body>
 </html>
