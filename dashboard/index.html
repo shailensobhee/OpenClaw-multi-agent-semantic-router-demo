@@ -12,7 +12,7 @@
   --heading:"Klavika","Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
   --body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
-  --console-h:220px;
+  --console-h:140px;
 }
 *{box-sizing:border-box;}
 
@@ -674,7 +674,7 @@ connectLogs();
 (function(){
   const root=document.documentElement, con=document.getElementById('console'), grip=document.getElementById('consoleResize');
   if(!con||!grip) return;
-  const KEY='booth.consoleH', DEF=220, MIN=90;
+  const KEY='booth.consoleH', DEF=140, MIN=90;
   const maxH=()=>Math.max(MIN, Math.round(window.innerHeight*0.75));
   const clamp=h=>Math.min(maxH(), Math.max(MIN, h));
   function apply(h){ root.style.setProperty('--console-h', clamp(h)+'px'); }
