@@ -36,6 +36,19 @@ The router sits in front of the vLLM backends on an **OpenAI-compatible** endpoi
 
 > The full router config is in [`router/config.yaml`](router/config.yaml). The decision model is bound at `global.model_catalog.system.decision_model` (resolves to `vllm-sr/Vela-2.0-0.3B`), and the `tier` signal is a `decision` signal with a `choice` question. Because the signal omits an explicit `deployment`, the question is answered by that system decision model.
 
+## See it route, live
+
+At the booth, the **Try it live** page (`/live`) lets anyone type a prompt and watch the Semantic Router pick the right-sized model **before a single token is generated**: the flowchart animates the decision on the CPU, lights up the chosen model (2B / 9B / 27B), and streams the answer from that model on the MI300X. While you drive it, the swarm is paused so the whole GPU serves your prompt.
+
+![Try it live: watch the router pick the right-sized model](docs/images/try-it-live-routing.gif)
+
+*A trivial "thanks!" routes to the 2B, a standard summary to the 9B, and a "prove there are infinitely many primes" to the 27B, each decided on the CPU in ~1 ms with zero GPU VRAM cost.*
+
+There is also a **Benchmark playground** (`/playground`) that quantifies the win two ways, each measured live on the MI300X:
+
+- **Routing ON vs OFF.** ON right-sizes every prompt across the 2B / 9B / 27B fleet; OFF forces everything through the single 27B. The page charts the latency, throughput, and time-to-first-token difference so you can see what the router buys you.
+- **Decision model on CPU vs GPU.** Runs the router's own **Vela 2.0 0.3B** decision model on the CPU and then on the MI300X (same model, same code path, only the device changes), and charts the per-decision latency and throughput gap.
+
 ## Keeping the GPU fully fed
 
 ![GPU efficiency](docs/diagrams/diagram3-gpu-efficiency.png)
@@ -54,12 +67,17 @@ router/     config.yaml         vLLM Semantic Router config, schema v0.3 (3 Qwen
 swarm/      swarm.py            continuous rolling OpenClaw swarm orchestrator (12 personas)
             model_tap.py        transparent tap proxy: records the REAL routed model per agent
             loadgen.py          GPU saturation load generator (toggle-able)
-dashboard/  backend.py          Flask API: live swarm state, GPU stats, fleet throughput, log stream
-            index.html          booth dashboard UI
+dashboard/  backend.py          Flask API: live swarm state, GPU stats, fleet throughput, log stream, live mode, benchmarks
+            index.html          booth dashboard UI (the main board)
+            live.html           Try it live: animated routing flowchart, pauses the swarm for a clean GPU window
+            playground.html     Benchmark playground: routing ON vs OFF, and the decision model on CPU vs GPU
+benchmarks/ playground.py       routing ON-vs-OFF measurement run (right-sized fleet vs always-27B)
+            decision_device.py  runs the Vela 2.0 decision model on CPU vs GPU for the device comparison
 scripts/    start_qwen_fleet.sh launch 2B+9B+27B co-resident on one MI300X
             install_vsr.sh      install the Semantic Router CLI + init config
             serve_vsr.sh        bring up the router stack (Envoy :8899 + router + dashboard)
 docs/       diagrams/           the AMD-branded diagrams above
+            images/             booth screenshots and the Try it live routing GIF
 systemd/    *.service           durable units for the fleet, router, swarm, dashboard, loadgen
 ```
 
