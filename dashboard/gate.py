@@ -30,7 +30,8 @@ app = Flask(__name__)
 UPSTREAM = os.environ.get("GATE_UPSTREAM", "http://127.0.0.1:7000")
 PASSWORD = os.environ.get("GATE_PASSWORD", "aipulse2026").strip()
 SECRET = os.environ.get("GATE_SECRET", "ai-pulse-2026-openclaw-booth-secret").encode()
-COOKIE = "booth_auth"
+COOKIE = "booth_sess2"
+OLD_COOKIES = ["booth_auth"]  # stale cookies from earlier gate versions, must be purged
 MAXAGE = 60 * 60 * 24 * 7  # 7 days
 BAN_THRESHOLD = int(os.environ.get("GATE_BAN_THRESHOLD", "3"))
 STATE_FILE = os.environ.get("GATE_STATE_FILE", "/opt/openclaw-swarm/gate_bans.json")
@@ -136,6 +137,32 @@ def _authed() -> bool:
     return _valid(request.cookies.get(COOKIE, ""))
 
 
+def _dbg(event: str, **kw):
+    # Debug tracing disabled in production (it logged raw cookies). Left as a
+    # no-op so the call sites stay harmless; flip GATE_DEBUG=1 to re-enable.
+    if os.environ.get("GATE_DEBUG") != "1":
+        return
+    try:
+        import datetime
+        line = {
+            "t": datetime.datetime.utcnow().isoformat(),
+            "event": event,
+            "path": request.full_path,
+            "ip": _client_ip(),
+            "has_cookie": COOKIE in request.cookies,
+            "cookie_valid": _valid(request.cookies.get(COOKIE, "")),
+            "dup_count": request.headers.get("Cookie", "").count(COOKIE + "="),
+            "ua": request.headers.get("User-Agent", "")[:80],
+            "cf": request.headers.get("CF-Connecting-IP", ""),
+            "xfp": request.headers.get("X-Forwarded-Proto", ""),
+            **kw,
+        }
+        with open("/var/log/booth-gate-debug.log", "a") as f:
+            f.write(json.dumps(line) + "\n")
+    except Exception:
+        pass
+
+
 LOGIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OpenClaw demo</title>
@@ -218,9 +245,20 @@ def gate_login():
         sep = "&" if "?" in nxt else "?"
         target = f"{nxt}{sep}_a={int(time.time())}"
         resp = make_response(redirect(target))
-        resp.set_cookie(COOKIE, _make_token(), max_age=MAXAGE, httponly=True, samesite="Lax")
+        # Secure only if the client reached us over HTTPS (CF sets X-Forwarded-Proto).
+        # A Secure cookie on a plain-HTTP hop would be silently dropped by the browser.
+        secure = request.headers.get("X-Forwarded-Proto", "").lower() == "https"
+        resp.set_cookie(COOKIE, _make_token(), max_age=MAXAGE, httponly=True,
+                        samesite="Lax", secure=secure, path="/")
+        # Purge stale cookies from earlier gate versions that Chrome keeps sending
+        # and that shadow the fresh one (signed with an old secret -> never valid).
+        for oc in OLD_COOKIES:
+            resp.delete_cookie(oc, path="/")
+            resp.delete_cookie(oc)
+        _dbg("login_ok", secure=secure, target=target)
         return _no_store(resp)
     # wrong password
+    _dbg("login_bad")
     newly_banned = _record_fail(ip)
     if newly_banned:
         abort(404)
@@ -235,6 +273,7 @@ def gate_login():
 @app.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 def proxy(path):
     if not _authed():
+        _dbg("proxy_unauthed")
         nxt = request.full_path if request.query_string else request.path
         if nxt.endswith("?"):
             nxt = nxt[:-1]
