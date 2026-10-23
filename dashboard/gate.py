@@ -138,7 +138,7 @@ def _authed() -> bool:
 
 LOGIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AMD ai-Pulse 2026 - OpenClaw demo</title>
+<title>OpenClaw demo</title>
 <style>
   :root{--amd-red:#ED1C24;}
   *{box-sizing:border-box;}
@@ -165,7 +165,7 @@ LOGIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
   .foot{margin-top:20px;color:#5c6773;font-size:11px;text-align:center;line-height:1.5;}
 </style></head><body>
   <form class="card" method="POST" action="/__gate_login" autocomplete="off">
-    <div class="brand"><span class="dot"></span><b>AMD INSTINCT&trade; MI300X &middot; ai-Pulse 2026</b></div>
+    <div class="brand"><span class="dot"></span><b>AMD INSTINCT&trade; MI300X</b></div>
     <h1>OpenClaw multi-agent demo</h1>
     <p class="sub">A live OpenClaw agent swarm routed across a Qwen model fleet on one MI300X. Enter the demo password to continue.</p>
     <label for="p">Password</label>
@@ -173,7 +173,7 @@ LOGIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
     <input type="hidden" name="next" value="__NEXT__">
     <button type="submit">Enter demo</button>
     <div class="err">__ERR__</div>
-    <div class="foot">AMD ai-Pulse 2026, Paris</div>
+    <div class="foot">AMD Instinct&trade; MI300X</div>
   </form>
 </body></html>"""
 
