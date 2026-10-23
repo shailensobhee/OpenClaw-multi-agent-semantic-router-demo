@@ -180,11 +180,14 @@ LOGIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 
 def _no_store(resp: Response) -> Response:
     # Make sure neither Cloudflare nor the browser caches the gate, so a stale
-    # login form can never be replayed against new server logic.
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    # login form can never be replayed against new server logic. Vary: Cookie so
+    # any intermediate cache keys on auth state (an authed request must never be
+    # served a cached no-cookie login page -> that is the post-login bounce).
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0, private"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     resp.headers["CDN-Cache-Control"] = "no-store"
+    resp.headers["Vary"] = "Cookie"
     return resp
 
 
@@ -209,7 +212,12 @@ def gate_login():
         nxt = "/"
     if hmac.compare_digest(pw, PASSWORD):
         _clear_fails(ip)
-        resp = make_response(redirect(nxt))
+        # Redirect to a one-shot cache-busted URL so a stale `/` sitting in the
+        # browser's OWN disk cache (from the pre-no-store gate) cannot be served
+        # instead of the authed dashboard -> that is the post-login bounce.
+        sep = "&" if "?" in nxt else "?"
+        target = f"{nxt}{sep}_a={int(time.time())}"
+        resp = make_response(redirect(target))
         resp.set_cookie(COOKIE, _make_token(), max_age=MAXAGE, httponly=True, samesite="Lax")
         return _no_store(resp)
     # wrong password
@@ -250,6 +258,19 @@ def proxy(path):
         return Response(f"Upstream error: {e}", status=502, mimetype="text/plain")
 
     resp_headers = [(k, v) for k, v in upstream.raw.headers.items() if k.lower() not in HOP]
+    # Prevent the browser/CDN from caching authed HTML pages and replaying them
+    # (a cached `/` served without re-checking the cookie causes a post-login bounce).
+    ctype = upstream.headers.get("Content-Type", "")
+    if "text/html" in ctype.lower():
+        resp_headers = [(k, v) for (k, v) in resp_headers
+                        if k.lower() not in ("cache-control", "pragma", "expires", "vary", "cdn-cache-control")]
+        resp_headers += [
+            ("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0, private"),
+            ("Pragma", "no-cache"),
+            ("Expires", "0"),
+            ("CDN-Cache-Control", "no-store"),
+            ("Vary", "Cookie"),
+        ]
 
     def generate():
         for chunk in upstream.iter_content(chunk_size=8192):
